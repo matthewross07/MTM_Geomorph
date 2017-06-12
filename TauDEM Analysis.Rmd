@@ -1,0 +1,214 @@
+---
+title: "TauDEM analysis"
+author: "Matthew Ross"
+date: "May 30, 2017"
+output: html_document
+---
+
+
+
+#TauDEM
+
+This is a script that does terrain analyses using the [TauDEM tool](http://hydrology.usu.edu/taudem/taudem5/index.html) from David Tarboton at Utah State. 
+
+
+##Pit remove
+```{bash, eval=F}
+mpiexec -n 8 pitremove -z TauNew.tif -fel newfel.tif
+
+mpiexec -n 8 pitremove -z TauOldElev.tif -fel oldfel.tif
+```
+
+##D8 
+
+###Flow direction with slope and flow direction
+```{bash, eval=F}
+mpiexec -n 8 d8flowdir -p newdir8.tif -sd8 newsd8.tif -fel newfel.tif
+
+mpiexec -n 8 d8flowdir -p olddir8.tif -sd8 oldsd8.tif -fel oldfel.tif
+
+```
+
+###Flow accumulation
+```{bash, eval=F}
+#mpiexec -n 8 aread8 -p newdir8.tif -ad8 newuaa8.tif
+
+#mpiexec -n 8 aread8 -p olddir8.tif -ad8 olduaa8.tif
+```
+
+
+##D-Infinity
+
+###Flowdir
+```{bash, eval=F}
+mpiexec -n 8 dinfflowdir -ang newinffdr.tif -slp newinfslp.tif -fel newfel.tif
+
+mpiexec -n 8 dinfflowdir -ang oldinffdr.tif -slp oldinfslp.tif -fel oldfel.tif
+
+
+```
+
+###Flow accumulation
+```{bash, eval=F}
+mpiexec -n 7 areadinf -ang newinffdr.tif -sca newinfuaa.tif
+
+mpiexec -n 7 areadinf -ang oldinffdr.tif -sca oldinfuaa.tif
+
+```
+
+###Threshold 1000 pixels = 0.1 km2
+
+```{bash, eval =F}
+
+#New infinity
+mpiexec -n 7 threshold -ssa newinfuaa.tif -src new100inf.tif -thresh 100
+#Old infinity 
+mpiexec -n 7 threshold -ssa oldinfuaa.tif -src old100inf.tif -thresh 100
+
+#New D8 
+mpiexec -n 7 threshold -ssa newuaa8.tif -src new1008.tif -thresh 100
+#Old D8
+mpiexec -n 7 threshold -ssa olduaa8.tif -src old1008.tif -thresh 100
+
+
+```
+
+
+##Project outlets with same projection as rasters
+```{r, eval=F}
+
+library(raster)
+library(tidyverse)
+library(magrittr)
+library(rgdal)
+library(rgeos)
+library(shapefiles)
+library(maptools)
+library(leaflet)
+
+proj <- projection(raster('TauNew.tif'))
+outs <- readOGR('shapefile/SubSheds.kml','Sub Sheds',stringsAsFactors=F) %>% spTransform(.,proj)
+outs <- outs[,1]
+outs$Id <- 1:nrow(outs)
+outs <- outs[,2:1]
+plot(outs)
+
+writeOGR(outs,'shapefile','approxnew',driver='ESRI Shapefile',overwrite_layer = T)
+
+
+
+
+```
+
+
+
+###Move outlets to streams, for some reason this is not working on my computer. 
+```{bash, eval=F}
+
+#New Infinity
+mpiexec -n 7 moveoutletstostrm -p newinffdr.tif -src new100inf.tif -o shapefile/approxnew.shp -om shapefile/snapinfnew.shp -md 30
+
+
+```
+
+###Delineate watersheds
+
+```{bash}
+#New Infinity
+mpiexec -n 7 areadinf -ang newinffdr.tif -o shapefile/approxnew.shp -sca newshedinf.tif
+
+mpiexec -n 7 aread8 -p newdir8.tif -o shapefile/approxnew.shp -ad8 newshed8.tif
+
+mpiexec -n 7 areadinf -ang oldinffdr.tif -o shapefile/approxnew.shp -sca oldshedinf.tif
+
+mpiexec -n 7 aread8 -p olddir8.tif -o shapefile/approxnew.shp -ad8 oldshed8.tif
+
+```
+
+
+
+
+#Post taudem processing
+
+
+##Stream network
+
+###Convert network into shapefile using code from [John Baumgartner](https://johnbaumgartner.wordpress.com/2012/07/26/getting-rasters-into-shape-from-r/) note that gdal and python-gdal must be installed (on linux machine)
+
+```{r, eval=F}
+
+
+gdal_polygonizeR <- function(x, outshape=NULL, gdalformat = 'ESRI Shapefile',
+                             pypath=NULL, readpoly=TRUE, quiet=TRUE) {
+  if (isTRUE(readpoly)) require(rgdal)
+  if (is.null(pypath)) {
+    pypath <- Sys.which('gdal_polygonize.py')
+  }
+  if (!file.exists(pypath)) stop("Can't find gdal_polygonize.py on your system.")
+  owd <- getwd()
+  on.exit(setwd(owd))
+  setwd(dirname(pypath))
+  if (!is.null(outshape)) {
+    outshape <- sub('\\.shp$', '', outshape)
+    f.exists <- file.exists(paste(outshape, c('shp', 'shx', 'dbf'), sep='.'))
+    if (any(f.exists))
+      stop(sprintf('File already exists: %s',
+                   toString(paste(outshape, c('shp', 'shx', 'dbf'),
+                                  sep='.')[f.exists])), call.=FALSE)
+  } else outshape <- tempfile()
+  if (is(x, 'Raster')) {
+    require(raster)
+    writeRaster(x, {f <- tempfile(fileext='.tif')})
+    rastpath <- normalizePath(f)
+  } else if (is.character(x)) {
+    rastpath <- normalizePath(x)
+  } else stop('x must be a file path (character string), or a Raster object.')
+  system2('python', args=(sprintf('"%1$s" "%2$s" -f "%3$s" "%4$s.shp"',
+                                  pypath, rastpath, gdalformat, outshape)))
+  if (isTRUE(readpoly)) {
+    shp <- readOGR(dirname(outshape), layer = basename(outshape), verbose=!quiet)
+    return(shp)
+  }
+  return(NULL)
+}
+
+sn.new.inf <- raster('new1000.tif')
+old.outlines <- readOGR('shapefile','FinalWshed_All_Whole') %>% spTransform(.,projection(sn.new.inf))
+
+# sn.1000 <- crop(sn.new.inf,extent(old.outlines)) 
+# sn.1000[sn.1000 < 1] <- NA
+# sn.1000.shp <- gdal_polygonizeR(sn.1000)
+# sn.1000.clip <- sn.1000.shp[old.outlines,] 
+# sn.1000.clip <- gUnaryUnion(sn.1000.clip, id = sn.1000.clip$DN)
+# sn.1000.clip$name <- 'data'
+# writeOGR(sn.1000.clip,'shapefile','sn.1000.clip',driver='ESRI Shapefile',overwrite_layer = T)
+
+# old.inf <- raster('old100.tif')
+# old.inf[old.inf<1] <- NA
+# old.1000.shp <- gdal_polygonizeR(old.inf)
+# old.100.clip <- old.1000.shp[old.outlines,]
+# old.100.clip <- gUnaryUnion(old.100.clip,id=old.100.clip$DN)
+# old.100.clip$name <- 'data'
+# writeOGR(old.100.clip,'shapefile','old.100.clip',driver='ESRI Shapefile')
+
+
+z <- raster('oldshed8.tif')  
+z1 <- raster('newshed8.tif')
+
+plot(old.outlines)
+plot(z,add=T,col='black')
+
+
+leaflet() %>% addTiles() %>%
+  addRasterImage(z)
+
+
+```
+
+
+```{r}
+library(raster)
+z <- raster('newfel.tif')
+plot(z)
+```
+
