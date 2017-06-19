@@ -9,7 +9,9 @@ output: html_document
 
 #TauDEM
 
-This is a script that does terrain analyses using the [TauDEM tool](http://hydrology.usu.edu/taudem/taudem5/index.html) from David Tarboton at Utah State. 
+This is a script that does terrain analyses using the [TauDEM tool](http://hydrology.usu.edu/taudem/taudem5/index.html) from David Tarboton at Utah State. All scripts below should be run in bash or terminal after installing TauDEM. R Code is mixed throughout to generate a final data table for analysis. 
+
+Some R code is at the bottom of the script to project outlets and subset rasters. 
 
 
 ##Pit remove
@@ -56,6 +58,9 @@ mpiexec -n 7 areadinf -ang oldinffdr.tif -sca oldinfuaa.tif
 
 ```
 
+
+##UAA analysis
+
 ###Threshold 1000 pixels = 0.1 km2
 
 ```{bash, eval =F}
@@ -73,9 +78,8 @@ mpiexec -n 7 threshold -ssa olduaa8.tif -src old1008.tif -thresh 100
 
 ```
 
-
-##Project outlets with same projection as rasters
-```{r, eval=F}
+###Project outlets with same projection as rasters
+```{r}
 
 library(raster)
 library(tidyverse)
@@ -85,20 +89,27 @@ library(rgeos)
 library(shapefiles)
 library(maptools)
 library(leaflet)
+library(velox)
+library(foreach)
+library(snow)
+library(parallel)
+library(doParallel)
+library(Hmisc)
 
-proj <- projection(raster('TauNew.tif'))
-outs <- readOGR('shapefile/SubSheds.kml','Sub Sheds',stringsAsFactors=F) %>% spTransform(.,proj)
-outs <- outs[,1]
-outs$Id <- 1:nrow(outs)
-outs <- outs[,2:1]
-plot(outs)
-
-writeOGR(outs,'shapefile','approxnew',driver='ESRI Shapefile',overwrite_layer = T)
+# proj <- projection(raster('TauNew.tif'))
+# outs <- readOGR('shapefile/SubSheds.kml','Sub Sheds',stringsAsFactors=F) %>% spTransform(.,proj)
+# outs <- outs[,1]
+# outs$Id <- 1:nrow(outs)
+# outs <- outs[,2:1]
+# plot(outs)x
+# 
+# writeOGR(outs,'shapefile','approxnew',driver='ESRI Shapefile',overwrite_layer = T)
 
 
 
 
 ```
+
 
 
 
@@ -127,8 +138,89 @@ mpiexec -n 7 aread8 -p olddir8.tif -o shapefile/approxnew.shp -ad8 oldshed8.tif
 
 
 
+#R analysis
 
-#Post taudem processing
+
+
+##Stack and cutup rasters to smaller extents
+```{r, eval=F}
+#Using a new faster raster library called Velox
+
+
+#Setup readin paths and crop extents and name order and empty lists
+uaa.paths <- c('newshedinf.tif', 'oldshedinf.tif','newshed8.tif','oldshed8.tif')
+slope.paths <- c('newinfslp.tif','oldinfslp.tif','newsd8.tif','oldsd8.tif')
+e.paths <- c('TauNew.tif','TauNew.tif','TauOldElev.tif','TauOldElev.tif')
+old.outlines <- readOGR('shapefile','FinalWshed_All_Whole',stringsAsFactors = F)
+old.names <- old.outlines$Site_Name %>% unique(.) %>% sort(.)
+uaa.stack <- list()
+slope.stack <- list()
+e.stack <- list()
+esu.stacked <- list()
+Evaluate on 5 cores (1 for each site)
+cl <- makeCluster(5)
+registerDoParallel(cl,cores=5)
+all.list <- foreach(i = 1:length(old.names)) %dopar% {
+  library(raster)
+  library(rgdal)
+  library(magrittr)
+  #Read in HUC12 Watershed outlines to trim data
+  shape <- old.outlines[old.outlines$Site_Name == old.names[i],]
+  for(j in 1:length(uaa.paths)){
+      #Read in watershed delineations and crop to single watershed
+      shed <- raster(uaa.paths[j]) %>% crop(.,shape)
+      #Store this cropped watershed uaa tif in a list
+      uaa.stack[[j]] <- shed
+      #Read in slope raster and crop
+      slope <- raster(slope.paths[j]) %>% crop(.,shape)
+      #Set Slope values outside of watershed to NA
+      slope[is.na(shed)] <- NA
+      #Store in slope stack
+      slope.stack[[j]] <- slope
+      #Samesies with elevation
+      e <- raster(e.paths[j]) %>% crop(.,shape)
+      e[is.na(shed)] <- NA
+      e.stack[[j]] <- e
+  }
+  esu.stacked[[i]] <- stack(c(e.stack,slope.stack,uaa.stack)) %>% trim(.)
+}
+endCluster()
+
+names(all.list) <- old.names
+
+
+save(all.list, file='ras.stack.RData')
+```
+
+
+
+##Convert raster data to data frames
+```{r}
+#Loads in all list which is a list of all sites
+load('ras.stack.RData')
+
+#Evaluate on 5 cores (1 for each site)
+cl <- makeCluster(5)
+registerDoParallel(cl,cores=5)
+stack.list <- foreach(i=1:length(old.names)) %dopar% {
+  library(raster)
+  library(dplyr)
+  library(magrittr)
+  l <- extract(all.list[[i]]) %>% as.data.frame(.) %>%
+    mutate(Site = old.names[i]) 
+}
+endCluster()
+
+stack.df <- do.call('rbind',stack.list)
+
+#Name the rows of this wide data frame
+plot(all.list[[1]])
+names(stack.df)[1:4] <- c('New.e.new','New.e.old','Old.e.new','Old.e.old')
+
+save(stack.df,file='UAA.E.Slope.RData')
+
+
+```
 
 
 ##Stream network
@@ -205,10 +297,4 @@ leaflet() %>% addTiles() %>%
 
 ```
 
-
-```{r}
-library(raster)
-z <- raster('newfel.tif')
-plot(z)
-```
 

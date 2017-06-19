@@ -1,0 +1,259 @@
+---
+title: "MTM_Geomorph_Figs3.0"
+author: "Matthew Ross"
+date: "June 14, 2017"
+output: 
+  html_document: 
+    fig_height: 6
+    fig_width: 8
+---
+
+#Geomorph open source style
+
+```{r,include=F}
+library(raster)
+library(tidyverse)
+library(magrittr)
+library(rgdal)
+library(rgeos)
+library(shapefiles)
+library(maptools)
+library(leaflet)
+library(velox)
+library(foreach)
+library(snow)
+library(parallel)
+library(doParallel)
+library(Hmisc)
+library(tidyverse)
+library(reshape2)
+library(plotly)
+library(scales)
+library(ggiraph)
+library(broom)
+library(RcppRoll)
+
+#Set ggplot2 theme
+matt_theme <- theme_set(theme_bw())
+matt_theme<- theme_update(axis.line = element_line(colour = "black"),
+                          panel.grid.major=element_blank(),
+                          panel.grid.minor = element_blank(),
+                          panel.background = element_blank(),
+                          text=element_text(family='sans','plain','black',14,0.5,0.5,0,0),
+                          plot.margin=unit(c(6,20,6,2),'pt')
+)
+
+```
+
+
+##Slope Area Plots
+
+Below are a first run at all of the new plots based on whole watersheds, tauDEM d-infinity algorithm.
+
+###Static Slope Area
+
+equally sized bins for Slope area plots (each point is a mean of ~ 10000 slope values. )
+```{r}
+#Loads stack.df a wide data frame with all rasters for 5 sites
+
+load('UAA.E.Slope.RData')
+load('ras.stack.RData')
+
+
+
+#Add an index column
+stack.df$index <- 1:nrow(stack.df)
+#Gather data into one long data frame
+long.df <- stack.df %>%
+  gather(Key,value,-Site,-index,na.rm=T)
+#Remove elevation data
+slp.aa <- long.df %>%
+  filter(!grepl('\\.e',Key)) %>%
+  mutate(fdr.type = ifelse(grepl('8',Key),'f.8','f.inf')) %>%
+  mutate(Data=ifelse(grepl('shed',Key),'UAA','Slope')) %>%
+  mutate(Treatment = ifelse(grepl('new',Key),'Post-mining','Pre-mining')) %>%
+  dcast(Site+index+fdr.type+Treatment ~ Data,value.var='value') %>%
+  mutate(UAA=ifelse(fdr.type=='f.8',UAA*100,round(UAA,0)*10)) %>% #Make upslope accumulated area in meteres squared
+  mutate(Bins=cut2(UAA,m=10000)) %>%
+  mutate(status=factor(Treatment,levels=c('Pre-mining','Post-mining')))
+
+
+
+
+slp.aa.sum <- slp.aa %>%
+  group_by(Site,fdr.type,status,Bins) %>%
+  summarise(Slope=mean(Slope),UAA=mean(UAA))
+
+#Finf
+g.aa.slp <- slp.aa.sum %>% 
+  filter(fdr.type=='f.inf') %>%
+  ggplot(aes(x=UAA,y=Slope,color=status)) + 
+  geom_point(shape=1) + 
+  scale_y_log10(breaks=c(0.01,0.1,1),
+                labels=c(0.01,0.1,1),
+                limits=c(0.01,1)) + 
+  facet_wrap(~Site) + 
+  theme(legend.position = c(0.8,.25)) + 
+  scale_color_manual(values=c('Blue','Red')) 
+
+
+g.aa.slp +   
+  ylab('Slope (m/m)') +
+  xlab(expression(paste('Area (',m^2,')'))) + 
+    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) 
+
+
+
+```
+
+
+###Slope Area interactive 
+  (expresssion issues make labels and ticks meaningless, but useful for zooming)
+
+```{r}
+ggplotly(g.aa.slp + scale_x_log10())
+```
+
+
+##CAD plots
+
+Again with D-Infinity
+
+###Static CAD
+```{r}
+
+#Generate an ecdf of CAD using tidy framework
+cad <- slp.aa %>% 
+  filter(fdr.type=='f.inf') %>% 
+  group_by(Site,status,UAA) %>%
+  summarise(Freq=n()) %>%
+  arrange(Site,status,desc(UAA)) %>%
+  mutate(Cume_Freq=cumsum(Freq)) 
+
+
+
+#Generate plot
+g.cad <- cad %>%
+  ggplot(.,aes(x=UAA,y=Cume_Freq,color=status,size=status)) +
+  geom_point() + 
+  scale_size_manual(values=c(2,.8)) + 
+  scale_color_manual(values=c('blue','red')) + 
+  facet_wrap(~Site) + 
+  theme(legend.position = c(0.8,.25)) 
+
+g.cad +   
+  ylab('Slope (m/m)') +
+  xlab(expression(paste('Area (',m^2,')'))) + 
+  scale_y_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) +
+    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) + 
+  xlab(expression(paste('Area (',m^2,')'))) + 
+  ylab(expression(paste('Cumulative Area (',m^2,')'))) 
+
+
+
+```
+
+
+###Interactive CAD
+
+takes a long time to run and slows down html, cutting out for now. 
+```{r, eval=F}
+ggplotly(g.cad + 
+           scale_x_log10() + 
+           scale_y_log10())
+```
+
+
+###Cad diff plot
+
+This difference plot helps distinguish breaks between fluvial and colluvial process zones
+```{r}
+library(zoo)
+deriv <- function(x, y) diff(y) / diff(x)
+middle_pts <- function(x) x[-1] - diff(x) / 2
+
+#Calculate first order differencing 
+cad.diff <- cad %>%
+  group_by(Site,status) %>%
+  arrange(Site,status,desc(Cume_Freq)) %>%
+  mutate(smoothy=roll_mean(log10(Cume_Freq),5,align='right',fill=0)) %>%
+  mutate(smoothx=roll_mean(log10(UAA),5,align='right',fill=0)) %>%
+  mutate(diff1=c(NA,c(diff(smoothy)))) 
+
+#Plot
+g.cad.diff <- ggplot(cad.diff,aes(x=UAA,y=diff1,color=status,size=status)) +
+  geom_point() + 
+  scale_x_log10() + 
+  scale_size_manual(values=c(2,.8)) +
+  facet_wrap(~Site) +
+  ylim(-0.01,0.005) + 
+  scale_color_manual(values=c('blue','red')) + 
+  theme(legend.position = c(.8,.25))
+
+g.cad.diff
+
+```
+
+
+
+##Energy Index
+
+
+###Energy Index, UAA Not Raised to any power
+
+The energy index as calcuated here is a simple multiplication of slope X upslope accumulated area, which provides an indication of the total energy available for moving material on any given plot of land. 
+```{r}
+#First create energy index column rounded to whole integer
+slp.aa$EI <- round(slp.aa$UAA*slp.aa$Slope,0)
+
+
+#Then create ecdf of ei
+ei <- slp.aa %>% 
+  filter(fdr.type=='f.inf') %>% 
+  group_by(Site,status,EI) %>%
+  summarise(Freq=n()) %>%
+  arrange(Site,status,desc(EI))  %>%
+  mutate(Cume_Freq=cumsum(Freq)/sum(Freq))
+
+g.ei <- ggplot(ei,aes(x=EI,y=Cume_Freq,color=status)) + 
+  geom_point() +
+  scale_x_log10() + 
+  facet_wrap(~Site) + 
+  scale_y_log10() + 
+  scale_color_manual(values=c('blue','red')) + 
+  theme(legend.position=c(0.8,.25))
+
+g.ei
+
+```
+
+###Energy Index UAA square root of UAA
+
+```{r}
+slp.aa$EI.sq <- round((slp.aa$UAA^.5)*slp.aa$Slope,0)
+
+#Then create ecdf of ei
+ei.sq <- slp.aa %>% 
+  filter(fdr.type=='f.inf') %>% 
+  group_by(Site,status,EI.sq) %>%
+  summarise(Freq=n()) %>%
+  arrange(Site,status,desc(EI.sq))  %>%
+  mutate(Cume_Freq=cumsum(Freq)/sum(Freq))
+
+g.ei.sq <- ggplot(ei.sq,aes(x=EI.sq,y=Cume_Freq,color=status)) + 
+  geom_point() +
+  scale_x_log10() + 
+  facet_wrap(~Site) + 
+  scale_y_log10() + 
+  scale_color_manual(values=c('blue','red')) + 
+  theme(legend.position=c(0.8,.25))
+
+g.ei.sq
+```
+
+
+
+
