@@ -2,7 +2,10 @@
 title: "TauDEM analysis"
 author: "Matthew Ross"
 date: "May 30, 2017"
-output: html_document
+output:
+  html_document:
+    toc: true
+    theme: united
 ---
 
 
