@@ -31,17 +31,17 @@ mpiexec -n 8 d8flowdir -p olddir8.tif -sd8 oldsd8.tif -fel oldfel.tif
 
 ```
 
-###Flow accumulation
+### Flow accumulation
 ```{bash, eval=F}
 #mpiexec -n 8 aread8 -p newdir8.tif -ad8 newuaa8.tif
 
 #mpiexec -n 8 aread8 -p olddir8.tif -ad8 olduaa8.tif
 ```
 
+ 
+##  D-Infinity
 
-##D-Infinity
-
-###Flowdir
+### Flowdir
 ```{bash, eval=F}
 mpiexec -n 8 dinfflowdir -ang newinffdr.tif -slp newinfslp.tif -fel newfel.tif
 
@@ -50,7 +50,7 @@ mpiexec -n 8 dinfflowdir -ang oldinffdr.tif -slp oldinfslp.tif -fel oldfel.tif
 
 ```
 
-###Flow accumulation
+### Flow accumulation
 ```{bash, eval=F}
 mpiexec -n 7 areadinf -ang newinffdr.tif -sca newinfuaa.tif
 
@@ -59,9 +59,9 @@ mpiexec -n 7 areadinf -ang oldinffdr.tif -sca oldinfuaa.tif
 ```
 
 
-##UAA analysis
+##  UAA analysis
 
-###Threshold 1000 pixels = 0.1 km2
+### Threshold 1000 pixels = 0.1 km2
 
 ```{bash, eval =F}
 
@@ -81,7 +81,7 @@ mpiexec -n 7 threshold -ssa olduaa8.tif -src old1008.tif -thresh 100
 
 ```
 
-###Project outlets with same projection as rasters
+### Project outlets with same projection as rasters
 ```{r}
 
 library(raster)
@@ -116,7 +116,7 @@ library(Hmisc)
 
 
 
-###Move outlets to streams, for some reason this is not working on my computer. 
+### Move outlets to streams, for some reason this is not working on my computer. 
 ```{bash, eval=F}
 
 #New Infinity
@@ -125,7 +125,7 @@ mpiexec -n 7 moveoutletstostrm -p newinffdr.tif -src new100inf.tif -o shapefile/
 
 ```
 
-###Delineate watersheds
+### Delineate watersheds
 
 ```{bash}
 #New Infinity
@@ -141,11 +141,11 @@ mpiexec -n 7 aread8 -p olddir8.tif -o shapefile/approxnew.shp -ad8 oldshed8.tif
 
 
 
-#R analysis
+# R analysis
 
 
 
-##Stack and cutup rasters to smaller extents
+##  Stack and cutup rasters to smaller extents
 ```{r, eval=F}
 #Using a new faster raster library called Velox
 
@@ -197,7 +197,7 @@ save(all.list, file='ras.stack.RData')
 
 
 
-##Convert raster data to data frames
+##  Convert raster data to data frames
 ```{r}
 #Loads in all list which is a list of all sites
 load('ras.stack.RData')
@@ -229,9 +229,9 @@ save(stack.df,file='UAA.E.Slope.RData')
 ```
 
 
-##Stream network
+##  Stream network
 
-###Convert network into shapefile using code from [John Baumgartner](https://johnbaumgartner.wordpress.com/2012/07/26/getting-rasters-into-shape-from-r/) note that gdal and python-gdal must be installed (on linux machine)
+### Convert network into shapefile using code from [John Baumgartner](https://johnbaumgartner.wordpress.com/2012/07/26/getting-rasters-into-shape-from-r/) note that gdal and python-gdal must be installed (on linux machine)
 
 ```{r, eval=F}
 
