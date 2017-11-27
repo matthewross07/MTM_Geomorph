@@ -6,11 +6,14 @@ output:
   html_document: 
     fig_height: 6
     fig_width: 8
+editor_options: 
+  chunk_output_type: console
 ---
 
 #Geomorph open source style
 
 ```{r,include=F}
+library(stringr)
 library(raster)
 library(tidyverse)
 library(magrittr)
@@ -29,9 +32,9 @@ library(tidyverse)
 library(reshape2)
 library(plotly)
 library(scales)
-library(ggiraph)
 library(broom)
 library(RcppRoll)
+library(zoo)
 
 #Set ggplot2 theme
 matt_theme <- theme_set(theme_bw())
@@ -61,6 +64,7 @@ load('ras.stack.RData')
 
 
 
+
 #Add an index column
 stack.df$index <- 1:nrow(stack.df)
 #Gather data into one long data frame
@@ -74,7 +78,8 @@ slp.aa <- long.df %>%
   mutate(Treatment = ifelse(grepl('new',Key),'Post-mining','Pre-mining')) %>%
   dcast(Site+index+fdr.type+Treatment ~ Data,value.var='value') %>%
   mutate(UAA=ifelse(fdr.type=='f.8',UAA*100,round(UAA,0)*10)) %>% #Make upslope accumulated area in meteres squared
-  mutate(Bins=cut2(UAA,m=10000)) %>%
+  group_by(Site) %>%
+  mutate(Bins=ifelse(UAA < 10000,cut2(UAA,m=2000),cut2(UAA,m=400))) %>%
   mutate(status=factor(Treatment,levels=c('Pre-mining','Post-mining')))
 
 
@@ -82,7 +87,39 @@ slp.aa <- long.df %>%
 
 slp.aa.sum <- slp.aa %>%
   group_by(Site,fdr.type,status,Bins) %>%
-  summarise(Slope=mean(Slope),UAA=mean(UAA))
+  summarise(Slope=mean(Slope),UAA=mean(UAA)) %>%
+  mutate(st.typ = paste(Site,status,sep='-'))
+
+
+
+full.uaa <- data.frame(UAA=rep(seq(min(slp.aa.sum$UAA),max(slp.aa.sum$UAA),100),10)) %>%
+  mutate(st.typ=rep(unique(slp.aa.sum$st.typ),each=length(unique(UAA)))) %>%
+  mutate(Site=str_split_fixed(st.typ,'-',n=2)[,1]) %>%
+  mutate(status=str_split_fixed(st.typ,'-',n=2)[,2] %>%
+           factor(.,levels=c('Pre-mining','Post-mining'))) 
+
+
+slp.aa.dif <- slp.aa.sum %>% 
+  filter(fdr.type == 'f.inf') %>%
+  full_join(.,full.uaa,by=c('UAA','st.typ','Site','status')) %>%
+  group_by(st.typ,Site,status) %>% 
+  arrange(st.typ,UAA) %>%
+  mutate(Slope1=na.approx(Slope,na.rm=F)) %>%
+  mutate(Slope2 = roll_meanr(Slope1,5)) %>%
+  mutate(derv=roll_meanr(c(NA,diff(Slope2)),11)) %>%
+  mutate(rawderv=c(NA,diff(Slope1)/diff(UAA))) %>%
+  filter(UAA < 10^6)
+
+
+g.aa.dif <- slp.aa.dif  %>%
+ggplot(., aes(x=UAA,y=derv,color=status)) + 
+  geom_point() +
+  facet_wrap(~Site) +   
+  theme(legend.position = c(0.8,.25)) + 
+  scale_color_manual(values=c('Blue','Red'))
+
+g.aa.dif + scale_x_log10() 
+
 
 #Finf
 g.aa.slp <- slp.aa.sum %>% 
@@ -96,6 +133,7 @@ g.aa.slp <- slp.aa.sum %>%
   theme(legend.position = c(0.8,.25)) + 
   scale_color_manual(values=c('Blue','Red')) 
 
+g.aa.slp + scale_x_log10()
 
 g.aa.slp +   
   ylab('Slope (m/m)') +
@@ -103,6 +141,130 @@ g.aa.slp +
     scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
               labels = trans_format("log10", math_format(10^.x))) 
 
+
+
+```
+
+
+#Check raw curvature plot. 
+```{r}
+library('spatialEco')
+?curvature
+
+s <- all.list[[1]]
+plot(s)
+old.test <- curvature
+new.test 
+
+
+```
+
+
+
+
+
+
+
+
+###Slope vs UAA derivative
+```{r}
+g.aa.dif +  scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x)),
+              limits=c(150,10^5.5)) 
+```
+
+
+###Break Identification
+```{r}
+names(slp.aa.dif)
+
+first.max <- slp.aa.dif %>%
+  filter(fdr.type=='f.inf') %>%
+  filter(status=='Pre-mining') %>%
+  group_by(Site) %>%
+  filter(round(derv,3) == 0) %>%
+  filter(UAA == min(UAA)) 
+
+break.min <- slp.aa.dif %>%
+  filter(fdr.type=='f.inf') %>%
+  filter(status=='Pre-mining') %>%
+  group_by(Site) %>%
+  filter(derv <= min(derv+.0001,na.rm=T)) %>%
+  filter(UAA == min(UAA))
+  
+converge <- slp.aa.dif %>%  
+  filter(fdr.type=='f.inf') %>%
+  filter(status=='Pre-mining') %>%
+  filter(UAA> min(break.min$UAA)) %>% 
+  group_by(Site) %>%
+  mutate(roller=roll_maxl(abs(derv),10)) %>%
+  filter(round(roller,3) == 0) %>%
+  filter(UAA == min(UAA))
+
+
+sa.brk <- data.frame(Site=first.max$Site,
+                     b1=first.max$UAA,
+                     b2=break.min$UAA,
+                     b3 = converge$UAA,stringsAsFactors = F) %>%
+  gather(.,b.zone,breaks,-Site)
+
+
+g.brk <- g.aa.slp +   
+  ylab('Slope (m/m)') +
+  xlab('area') + 
+    scale_x_log10() + 
+  theme(legend.position=c(.8,.25)) +
+  geom_vline(data=sa.brk,aes(xintercept=breaks)) 
+
+ggplotly(g.brk)
+
+
+g.dif.brk <- g.aa.dif + 
+  xlab('Area') + 
+  ylab('Slope (m/m)') + 
+  scale_x_log10() + 
+  geom_vline(data=sa.brk, aes(xintercept=breaks))  
+
+
+g.dif.brk
+```
+
+
+###Zone 4 regressions
+
+```{r}
+slp.aa.brks <- left_join(slp.aa.sum,sa.brk,by='Site') %>%
+  filter(fdr.type=='f.inf') %>%
+  filter(b.zone == 'b3') %>%
+  filter(UAA >= breaks) %>%
+  group_by(Site) %>%
+  do(tidy(lm(log10(Slope) ~ log10(UAA) * status, data=.))) #%>%
+  filter(term == 'log10(UAA)') %>%
+  mutate(theta=estimate)
+
+slp.aa.brks
+```
+
+
+###Slope as STD instead of mean as SI
+```{r}
+slp.aa.sd <- slp.aa %>%
+  group_by(Site,fdr.type,status,Bins) %>%
+  summarise(Slope=sd(Slope),UAA=mean(UAA)) %>%
+  mutate(st.typ = paste(Site,status,sep='-'))
+
+g.aa.sd <- slp.aa.sd %>% 
+  filter(fdr.type=='f.inf') %>%
+  ggplot(aes(x=UAA,y=Slope,color=status)) + 
+  geom_point(shape=1) + 
+  facet_wrap(~Site) + 
+  theme(legend.position = c(0.8,.25)) + 
+  scale_color_manual(values=c('Blue','Red'))# +
+  scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x)))
+  
+g.aa.sd + scale_x_log10() + 
+    geom_vline(data=sa.brk,aes(xintercept=value))
 
 
 ```
@@ -129,7 +291,20 @@ cad <- slp.aa %>%
   group_by(Site,status,UAA) %>%
   summarise(Freq=n()) %>%
   arrange(Site,status,desc(UAA)) %>%
-  mutate(Cume_Freq=cumsum(Freq)) 
+  mutate(Cume_Freq=cumsum(Freq)) %>%
+  mutate(st.typ=paste(Site,status,'-')) 
+
+
+
+cad.dif <- cad %>% 
+  full_join(.,full.uaa,by=c('UAA','st.typ','Site','status')) %>%
+  group_by(st.typ,Site,status) %>% 
+  arrange(st.typ,UAA) %>%
+  mutate(Cume1=na.approx(Cume_Freq,na.rm=F)) %>%
+  mutate(Cume2 = roll_meanr(Cume1,5)) %>%
+  mutate(derv=roll_meanr(c(NA,diff(Cume2)),11)) %>%
+  mutate(rawderv=c(NA,diff(Cume1)/diff(UAA))) %>%
+  filter(UAA < 10^6)
 
 
 
@@ -142,6 +317,8 @@ g.cad <- cad %>%
   facet_wrap(~Site) + 
   theme(legend.position = c(0.8,.25)) 
 
+summary(cad.dif)
+
 g.cad +   
   ylab('Slope (m/m)') +
   xlab(expression(paste('Area (',m^2,')'))) + 
@@ -150,9 +327,27 @@ g.cad +
     scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
               labels = trans_format("log10", math_format(10^.x))) + 
   xlab(expression(paste('Area (',m^2,')'))) + 
-  ylab(expression(paste('Cumulative Area (',m^2,')'))) 
+  ylab(expression(paste('Cumulative Area (',m^2,')'))) + 
+      geom_vline(data=sa.brk,aes(xintercept=breaks))
 
 
+```
+
+
+###Cad Diff Plot w/ SA breaks
+```{r}
+g.cad.dif <- cad.dif %>%
+  ggplot(.,aes(x=UAA,y=derv,color=status,size=status)) + 
+  geom_point() + 
+  scale_size_manual(values=c(2,.8)) + 
+  scale_color_manual(values=c('blue','red')) + 
+  facet_wrap(~Site) + 
+  theme(legend.position = c(0.8,.25)) + 
+  scale_x_log10() +   
+  geom_vline(data=sa.brk,aes(xintercept=breaks))
+
+  
+g.cad.dif
 
 ```
 
@@ -172,28 +367,38 @@ ggplotly(g.cad +
 This difference plot helps distinguish breaks between fluvial and colluvial process zones
 ```{r}
 library(zoo)
-deriv <- function(x, y) diff(y) / diff(x)
-middle_pts <- function(x) x[-1] - diff(x) / 2
 
-#Calculate first order differencing 
-cad.diff <- cad %>%
-  group_by(Site,status) %>%
-  arrange(Site,status,desc(Cume_Freq)) %>%
-  mutate(smoothy=roll_mean(log10(Cume_Freq),5,align='right',fill=0)) %>%
-  mutate(smoothx=roll_mean(log10(UAA),5,align='right',fill=0)) %>%
-  mutate(diff1=c(NA,c(diff(smoothy)))) 
 
-#Plot
-g.cad.diff <- ggplot(cad.diff,aes(x=UAA,y=diff1,color=status,size=status)) +
+full.uaa <- data.frame(UAA=rep(seq(min(slp.aa.sum$UAA),max(slp.aa.sum$UAA),200),10)) %>%
+  mutate(st.typ=rep(unique(slp.aa.sum$st.typ),each=length(unique(UAA)))) %>%
+  mutate(Site=str_split_fixed(st.typ,'-',n=2)[,1]) %>%
+  mutate(status=str_split_fixed(st.typ,'-',n=2)[,2] %>%
+           factor(.,levels=c('Pre-mining','Post-mining'))) 
+
+
+cad.dif <- cad %>% 
+  ungroup(.) %>%
+  full_join(.,full.uaa,by=c('UAA','st.typ','Site','status')) %>%
+  group_by(st.typ,Site,status) %>% 
+  arrange(st.typ,UAA) %>%
+  mutate(cfreq1=na.approx(Cume_Freq,na.rm=F)) %>%
+  mutate(cfreq2 = roll_meanr(cfreq1,3)) %>%
+  mutate(derv=roll_meanr(c(NA,diff(cfreq2)/diff(UAA)),5)) 
+
+summary(cad.dif)
+tail(cad.dif)
+
+
+g.cad.dif <- cad.dif %>%
+  ggplot(.,aes(x=UAA,y=derv,color=status)) + 
   geom_point() + 
-  scale_x_log10() + 
-  scale_size_manual(values=c(2,.8)) +
-  facet_wrap(~Site) +
-  ylim(-0.01,0.005) + 
+  facet_wrap(~Site) + 
   scale_color_manual(values=c('blue','red')) + 
-  theme(legend.position = c(.8,.25))
-
-g.cad.diff
+  theme(legend.position=c(.8,.25))
+  
+g.cad.dif + 
+      scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x)))
 
 ```
 
