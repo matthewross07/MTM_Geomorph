@@ -7,23 +7,23 @@ output: html_document
 
 
 
-#TauDEM
+# TauDEM
 
 This is a script that does terrain analyses using the [TauDEM tool](http://hydrology.usu.edu/taudem/taudem5/index.html) from David Tarboton at Utah State. All scripts below should be run in bash or terminal after installing TauDEM. R Code is mixed throughout to generate a final data table for analysis. 
 
 Some R code is at the bottom of the script to project outlets and subset rasters. 
 
 
-##Pit remove
+## Pit remove
 ```{bash, eval=F}
 mpiexec -n 8 pitremove -z TauNew.tif -fel newfel.tif
 
 mpiexec -n 8 pitremove -z TauOldElev.tif -fel oldfel.tif
 ```
 
-##D8 
+## D8 
 
-###Flow direction with slope and flow direction
+### Flow direction with slope and flow direction
 ```{bash, eval=F}
 mpiexec -n 8 d8flowdir -p newdir8.tif -sd8 newsd8.tif -fel newfel.tif
 
@@ -74,6 +74,9 @@ mpiexec -n 7 threshold -ssa oldinfuaa.tif -src old100inf.tif -thresh 100
 mpiexec -n 7 threshold -ssa newuaa8.tif -src new1008.tif -thresh 100
 #Old D8
 mpiexec -n 7 threshold -ssa olduaa8.tif -src old1008.tif -thresh 100
+
+#Curvature method
+
 
 
 ```
@@ -199,9 +202,12 @@ save(all.list, file='ras.stack.RData')
 #Loads in all list which is a list of all sites
 load('ras.stack.RData')
 
+library(doParallel) #to do parallel processing
+library(parallel) # to register parallel processing
+library(foreach) # to do parallel processing as a forloop
 #Evaluate on 5 cores (1 for each site)
-cl <- makeCluster(5)
-registerDoParallel(cl,cores=5)
+cl <- makeCluster(3) #make a cluster with 3 cores
+registerDoParallel(cl,cores=3) #tell parallel processor to use 3 cores
 stack.list <- foreach(i=1:length(old.names)) %dopar% {
   library(raster)
   library(dplyr)
