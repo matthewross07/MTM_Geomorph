@@ -1,0 +1,344 @@
+---
+title: "TauDEM analysis"
+author: "Matthew Ross"
+date: "May 30, 2017"
+output:
+  html_document:
+    toc: true
+    theme: united
+editor_options: 
+  chunk_output_type: console
+---
+
+
+
+# TauDEM
+
+This is a script that does terrain analyses using the [TauDEM tool](http://hydrology.usu.edu/taudem/taudem5/index.html) from David Tarboton at Utah State. All scripts below should be run in bash or terminal after installing TauDEM. R Code is mixed throughout to generate a final data table for analysis. 
+
+Some R code is at the bottom of the script to project outlets and subset rasters. 
+
+
+## Pit remove
+```{bash, eval=F}
+mpiexec -n 8 pitremove -z data/in/TauNew.tif -fel data/out/newfel.tif
+
+mpiexec -n 8 pitremove -z data/in/TauOldElev.tif -fel data/out/oldfel.tif
+```
+
+## D8 
+
+### Flow direction with slope and flow direction
+```{bash, eval=F}
+mpiexec -n 8 d8flowdir -p data/out/newdir8.tif -sd8 data/out/newsd8.tif -fel data/out/newfel.tif
+
+mpiexec -n 8 d8flowdir -p data/out/olddir8.tif -sd8 data/out/oldsd8.tif -fel data/out/oldfel.tif
+
+```
+
+### Flow accumulation
+```{bash, eval=F}
+mpiexec -n 8 aread8 -p data/out/newdir8.tif -ad8 data/out/newuaa8.tif
+
+mpiexec -n 8 aread8 -p data/out/olddir8.tif -ad8 data/out/olduaa8.tif
+```
+
+ 
+##  D-Infinity
+
+### Flowdir
+```{bash, eval=F}
+mpiexec -n 8 dinfflowdir -ang data/out/newinffdr.tif -slp data/out/newinfslp.tif -fel data/out/newfel.tif
+
+mpiexec -n 8 dinfflowdir -ang data/out/oldinffdr.tif -slp data/out/oldinfslp.tif -fel data/out/oldfel.tif
+
+
+```
+
+### Flow accumulation
+```{bash, eval=F}
+mpiexec -n 7 areadinf -ang data/out/newinffdr.tif -sca data/out/newinfuaa.tif
+
+mpiexec -n 7 areadinf -ang data/out/oldinffdr.tif -sca data/out/oldinfuaa.tif
+
+```
+
+
+##  UAA analysis
+
+### Threshold 1000 pixels = 0.1 km2
+
+```{bash}
+
+#New infinity
+mpiexec -n 7 threshold -ssa data/out/newinfuaa.tif -src data/out/new100inf.tif -thresh 100
+#Old infinity 
+mpiexec -n 7 threshold -ssa data/out/oldinfuaa.tif -src data/out/old100inf.tif -thresh 100
+
+#New D8 
+mpiexec -n 7 threshold -ssa data/out/newuaa8.tif -src data/out/new1008.tif -thresh 100
+#Old D8
+mpiexec -n 7 threshold -ssa data/out/olduaa8.tif -src data/out/old1008.tif -thresh 100
+
+#Curvature method
+
+
+
+```
+
+
+
+
+### Move outlets to streams, for some reason this is not working on my computer. 
+```{bash, eval=F}
+
+#New Infinity
+mpiexec -n 7 moveoutletstostrm -p newinffdr.tif -src new100inf.tif -o data/in/shapefile/approxnew.shp -om data/in/shapefile/snapinfnew.shp -md 30
+
+
+```
+
+### Delineate watersheds
+
+```{bash, eval=F}
+#New Infinity
+mpiexec -n 7 areadinf -ang data/out/newinffdr.tif -o data/in/shapefile/approxnew.shp -sca newshedinf.tif
+
+mpiexec -n 7 aread8 -p data/out/newdir8.tif -o data/in/shapefile/approxnew.shp -ad8 newshed8.tif
+
+mpiexec -n 7 areadinf -ang data/out/oldinffdr.tif -o data/in/shapefile/approxnew.shp -sca oldshedinf.tif
+
+mpiexec -n 7 aread8 -p data/out/olddir8.tif -o data/in/shapefile/approxnew.shp -ad8 oldshed8.tif
+
+```
+
+
+
+# R analysis
+
+## Project outlets with same projection as rasters
+```{r, eval=FALSE}
+
+library(raster)
+library(tidyverse)
+library(magrittr)
+library(rgdal)
+library(rgeos)
+library(shapefiles)
+library(maptools)
+library(leaflet)
+library(velox)
+library(foreach)
+library(snow)
+library(parallel)
+library(doParallel)
+library(Hmisc)
+
+
+#Match outlet projections to raster data
+outs <- readOGR('data/in/shapefile/SubSheds.kml','Sub Sheds',stringsAsFactors=F) %>% spTransform(.,CRS=CRS('+init=epsg:26917'))
+outs <- outs[,1]
+outs$Id <- 1:nrow(outs)
+outs <- outs[,2:1]
+plot(outs)
+
+
+#writeOGR(outs,'data/in/shapefile','approxnew',driver='ESRI Shapefile',overwrite_layer = T)
+
+
+
+
+```
+
+
+### Convert network into shapefile using code from [John Baumgartner](https://johnbaumgartner.wordpress.com/2012/07/26/getting-rasters-into-shape-from-r/) note that gdal and python-gdal must be installed (on linux machine)
+
+I used this network to hand select watershed outlets based on a separate layer of mining extent. I tried to capture watersheds that were > 90% mined. 
+
+```{r, eval=F}
+
+
+gdal_polygonizeR <- function(x, outshape=NULL, gdalformat = 'ESRI Shapefile',
+                             pypath=NULL, readpoly=TRUE, quiet=TRUE) {
+  if (isTRUE(readpoly)) require(rgdal)
+  if (is.null(pypath)) {
+    pypath <- Sys.which('/Library/Frameworks/GDAL.framework/Versions/2.1/Programs/gdal_polygonize.py')
+  }
+  if (!file.exists(pypath)) stop("Can't find gdal_polygonize.py on your system.")
+  owd <- getwd()
+  on.exit(setwd(owd))
+  setwd(dirname(pypath))
+  if (!is.null(outshape)) {
+    outshape <- sub('\\.shp$', '', outshape)
+    f.exists <- file.exists(paste(outshape, c('shp', 'shx', 'dbf'), sep='.'))
+    if (any(f.exists))
+      stop(sprintf('File already exists: %s',
+                   toString(paste(outshape, c('shp', 'shx', 'dbf'),
+                                  sep='.')[f.exists])), call.=FALSE)
+  } else outshape <- tempfile()
+  if (is(x, 'Raster')) {
+    require(raster)
+    writeRaster(x, {f <- tempfile(fileext='.tif')})
+    rastpath <- normalizePath(f)
+  } else if (is.character(x)) {
+    rastpath <- normalizePath(x)
+  } else stop('x must be a file path (character string), or a Raster object.')
+  system2('python', args=(sprintf('"%1$s" "%2$s" -f "%3$s" "%4$s.shp"',
+                                  pypath, rastpath, gdalformat, outshape)))
+  if (isTRUE(readpoly)) {
+    shp <- readOGR(dirname(outshape), layer = basename(outshape), verbose=!quiet)
+    return(shp)
+  }
+  return(NULL)
+}
+
+sn.new.inf <- raster('new1000.tif')
+old.outlines <- readOGR('data/in/shapefile','FinalWshed_All_Whole') %>% spTransform(.,projection(sn.new.inf))
+
+sn.1000 <- crop(sn.new.inf,extent(old.outlines))
+sn.1000[sn.1000 < 1] <- NA
+sn.1000.shp <- gdal_polygonizeR(sn.1000)
+sn.1000.clip <- sn.1000.shp[old.outlines,]
+sn.1000.clip <- gUnaryUnion(sn.1000.clip, id = sn.1000.clip$DN)
+sn.1000.clip$name <- 'data'
+# writeOGR(sn.1000.clip,'data/in/shapefile','sn.1000.clip',driver='ESRI Shapefile',overwrite_layer = T)
+
+old.inf <- raster('old100.tif')
+old.inf[old.inf<1] <- NA
+old.1000.shp <- gdal_polygonizeR(old.inf)
+old.100.clip <- old.1000.shp[old.outlines,]
+old.100.clip <- gUnaryUnion(old.100.clip,id=old.100.clip$DN)
+old.100.clip$name <- 'data'
+# writeOGR(old.100.clip,'data/in/shapefile','old.100.clip',driver='ESRI Shapefile')
+
+```
+
+
+
+
+##  Stack and cutup rasters to smaller extents for later analysis in r. 
+
+```{r, eval=F}
+#Using a new faster raster library called Velox
+
+
+#Setup readin paths and crop extents and name order and empty lists
+#Upslop accumulated area data
+uaa.paths <- paste0('data/out/',c('newshedinf.tif', 'oldshedinf.tif','newshed8.tif','oldshed8.tif'))
+#Slope data. 
+slope.paths <- paste0('data/out/',c('newinfslp.tif','oldinfslp.tif','newsd8.tif','oldsd8.tif'))
+#Elevation data. 
+e.paths <- paste0('data/in/',c('TauNew.tif','TauNew.tif','TauOldElev.tif','TauOldElev.tif')
+#Names for where elevation profiles come from (matched with current shed boundaries or not? New.e.new means New elevatio profiles with new shed boundaries. New.e.old means new elevation with old shed boundaries)
+e.names <- c('New.e.new','New.e.old','Old.e.new','Old.e.old')
+#Read in raster outlines
+sheds <- raster(uaa.paths[1]) %>% crop(.,extent(400000,470000,4150000,4230000))
+oldsheds<- raster(uaa.paths[3]) %>% crop(.,extent(400000,470000,4150000,4230000))
+
+
+#Set all values to 1
+sheds[sheds > 0] <- 1
+
+#Turn these into shapefiles
+shd.shp <- gdal_polygonizeR(sheds)
+
+#Buffer out by 500m to include any ridge changes and reproject to outlet projeciton
+shd.shp.buf <- gBuffer(shd.shp,width=400) %>%
+  spTransform(.,projection(outs)) %>%
+  disaggregate(.) %>%
+  SpatialPolygonsDataFrame(.,data=data.frame(id=1:10))
+
+
+##Plot shd.shp.buf to see if the buffered area includes old watersheds
+# plot(shd.shp.buf)
+# plot(oldsheds,col='black',add=T)
+
+
+#Join these shapefiles to the outlets to get the names (ref or not ref)
+shd.names <- over(shd.shp.buf,outs)
+shd.shp.names <- spCbind(shd.shp.buf,shd.names)
+
+
+
+
+#Setup storage lists
+uaa.stack <- list()
+slope.stack <- list()
+e.stack <- list()
+esu.stacked <- list()
+#Evaluate on 7 cores 
+cl <- makeCluster(3)
+registerDoParallel(cl,cores=3)
+all.list <- foreach(i = 1:nrow(shd.names)) %dopar% {
+  library(raster)
+  library(rgdal)
+  library(magrittr)
+  #Read in each Watershed outline to trim data
+  shape <- shd.shp.names[shd.shp.names$Name == shd.names$Name[i],]
+  for(j in 1:length(uaa.paths)){
+      #Read in watershed delineations and crop to single watershed
+      shed <- raster(uaa.paths[j]) %>% crop(.,shape)
+      #Store this cropped watershed uaa tif in a list
+      uaa.stack[[j]] <- shed
+      #Read in slope raster and crop
+      slope <- raster(slope.paths[j]) %>% crop(.,shape)
+      #Set Slope values outside of watershed to NA
+      slope[is.na(shed)] <- NA
+      #Store in slope stack
+      slope.stack[[j]] <- slope
+      #Samesies with elevation
+      e <- raster(e.paths[j]) %>% crop(.,shape)
+      e[is.na(shed)] <- NA
+      e.stack[[j]] <- e
+  }
+  esu.stacked[[i]] <- stack(c(e.stack,slope.stack,uaa.stack)) %>% trim(.)
+}
+endCluster()
+names(all.list) <- shd.names$Name
+
+
+#save(all.list, file='data/out/ras.stack.ref.RData')
+```
+
+
+
+##  Convert raster data to data frames
+```{r}
+#Loads in all list which is a list of all sites
+load('data/out/ras.stack.ref.RData')
+
+library(doParallel) #to do parallel processing
+library(parallel) # to register parallel processing
+library(foreach) # to do parallel processing as a forloop
+#Evaluate on 7 cores
+cl <- makeCluster(3) #make a cluster with 3 cores
+registerDoParallel(cl,cores=3) #tell parallel processor to use 3 cores
+
+stack.list <- foreach(i=1:length(all.list)) %dopar% {
+  library(raster)
+  library(dplyr)
+  library(magrittr)
+  l <- extract(all.list[[i]]) %>% as.data.frame(.) %>%
+    mutate(Site = shd.names$Name[i]) 
+}
+endCluster()
+
+stack.df <- do.call('rbind',stack.list) 
+names(stack.df)[1:4] <- e.names
+
+  
+
+head(stack.df)
+#Name the rows of this wide data frame
+
+save(stack.df,file='data/out/UAA.E.Slope.Ref.RData')
+
+
+```
+
+
+
+
+
+
+

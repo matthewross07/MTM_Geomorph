@@ -1,0 +1,1153 @@
+---
+title: "MTM_Geomorph_Figs3.0"
+author: "Matthew Ross"
+date: "June 14, 2017"
+output: 
+  html_document: 
+    fig_height: 6
+    fig_width: 8
+editor_options: 
+  chunk_output_type: console
+---
+
+#Geomorph open source style
+
+```{r,include=F}
+library(stringr)
+library(raster)
+library(tidyverse)
+library(rgdal)
+library(rgeos)
+library(shapefiles)
+library(maptools)
+library(leaflet)
+library(velox)
+library(foreach)
+library(snow)
+library(parallel)
+library(doParallel)
+library(tidyverse)
+library(reshape2)
+library(plotly)
+library(scales)
+library(broom)
+library(RcppRoll)
+library(zoo)
+library(knitr)
+library(kableExtra)
+library(tidyr)
+
+
+#Set ggplot2 theme
+matt_theme <- theme_set(theme_bw())
+matt_theme<- theme_update(axis.line = element_line(colour = "black"),
+                          panel.grid.major=element_blank(),
+                          panel.grid.minor = element_blank(),
+                          panel.background = element_blank(),
+                          text=element_text(family='sans','plain','black',14,0.5,0.5,0,0),
+                          plot.margin=unit(c(6,20,6,2),'pt')
+)
+
+
+#Load in long data
+load('data/out/Long.DF.RData')
+
+#Load in raster data
+load('data/out/UAA.E.Slope.Ref.RData')
+load('data/out/ras.stack.ref.RData')
+
+
+
+
+```
+
+
+## General site summary data
+
+In the following code chunk I load in the data convert it into long data and 
+make sensible column names. I then save this file so I don't have to perform 
+the operations again. 
+```{r,eval=F}
+#Loads stack.df a wide data frame with all rasters for 5 sites
+
+load('data/out/UAA.E.Slope.Ref.RData')
+load('data/out/ras.stack.ref.RData')
+
+
+
+
+#Add an index column
+stack.df$index <- 1:nrow(stack.df)
+
+#Gather data into one long data frame
+long.df <- stack.df %>%
+  gather(Key,value,-Site,-index,na.rm=T)  %>%
+  #Fix whiteoak reference name (currently labeld just white)
+  mutate(Site=ifelse(Site=='WhiteRef','WhiteOakRef',Site)) %>%
+  #Create a column with watershed delineation data (is it old elevation shed or new elevation shed?)
+  #This information is the last word in the key column (new.e.new = new elevation profile with new watershed boundary, old.e.new = old elevation profile with new watershed boundary)
+  mutate(shed.type= ifelse(grepl('\\.',Key),str_split_fixed(Key,'\\.',n=3)[,3],NA)) %>%
+  mutate(elev.data= ifelse(grepl('\\.',Key),str_split_fixed(Key,'\\.',n=3)[,1],NA)) %>%
+  #Column to show what flow direction algorithm was used for calcuation
+  mutate(fdr.type = ifelse(grepl('8',Key),'f.8','f.inf')) %>%
+  #Elevation does not have a flow direction associated with it
+  mutate(fdr.type = ifelse(!is.na(shed.type),'None',fdr.type)) %>%
+  #What kind of data is in the column? UAA Slope or Elev?
+  mutate(Data=ifelse(grepl('shed',Key),'UAA','Slope')) %>%
+  mutate(Data=ifelse(!is.na(shed.type),'Elev',Data)) %>%
+  #Relabel 'new' as post-mining and old as pre-mining
+  mutate(Data.Source = ifelse(grepl('new',Key) & !grepl('Ref',Site),'Current','Historic')) %>%
+  #Split sites between reference and mined
+  mutate(Type = ifelse(grepl('Ref',Site),'Unmined','Mined')) %>%
+  #Rename treaments for reference to reflect historic dem and current dem
+  mutate(Data.Source=ifelse(grepl('Ref',Site) & grepl('new',Key),'Current',Data.Source)) %>%
+  mutate(Data.Source=ifelse(grepl('Ref',Site) & grepl('old',Key),'Historic',Data.Source)) %>%
+  #Make new column with huc12 watershed name
+  mutate(Watershed = gsub('Ref','',Site)) 
+
+
+dat.check <- long.df %>%
+  group_by(Watershed,Type,Data.Source,Site) %>%
+  dplyr::summarize(length=n()) 
+
+
+
+#save(long.df,file='data/out/Long.DF.RData')
+
+
+```
+
+
+# Raw site summaries (median elevation, total relief, etc...)  for changes on old elevation profile
+
+## %mining
+```{r}
+#Read in mining detection layer
+first.mined <- raster('data/in/FirstMinedCamp.tif') 
+
+#The first raster in the list of rasters (all list) is the elevation profile
+#of the current watershed delineation. Use this to get % mining for each site
+
+
+cl <- makeCluster(3)
+registerDoParallel(cl,cores=3)
+pmine.list <- foreach(i=1:length(all.list)) %dopar% {
+  library(raster)
+  library(tidyverse)
+  library(rgeos)
+  ras.raw <- all.list[[i]][[1]] 
+  ras <-  projectRaster(ras.raw,crs=projection(first.mined)) 
+  
+  mine.ras <- first.mined %>%
+    crop(.,ras) 
+  
+  ras.res <- projectRaster(ras,mine.ras)
+  
+  mine.mask <- raster::mask(mine.ras,ras.res)
+  
+  ras.area = length(ras.res[!is.na(ras.res)])
+  
+  mine.area = length(mine.mask[mine.mask < 2015])
+  pmine=mine.area/ras.area
+  
+  dat <- tibble(pmine=pmine,
+                Site=names(all.list)[[i]],
+                area=round(length(ras.raw[!is.na(ras.raw)])*100/(1000*1000),1))
+}
+endCluster()
+pmine.dat <- do.call('rbind',pmine.list) %>%
+  mutate(Site=gsub('WhiteRef','WhiteOakRef',Site)) %>%
+  mutate(pmine=round(pmine,2)*100) %>%
+  dplyr::select(Site,pmine) %>%
+  arrange(Site)
+
+
+
+
+
+```
+
+
+
+###Elevation
+```{r}
+
+
+
+library(tidyverse)
+elev.summary <- long.df %>%
+  filter(Data == 'Elev') %>%
+  filter(Key %in% c('Old.e.old','New.e.new')) %>%
+  group_by(Site,Watershed,Type,Data.Source) %>% 
+  dplyr::summarize(max=max(value),
+            min=min(value),
+            median=round(median(value),0),
+            mean=mean(value),
+            sd=sd(value),
+            area=round(n()*100/(1000*1000),2))%>%
+  mutate(relief=max-min) 
+
+
+e.wide <- elev.summary %>%
+  ungroup(.) %>%
+  dplyr::select(Site,Type,Data.Source,median) %>%
+  spread(Data.Source,median) %>%
+  arrange(Site) %>% 
+  mutate(elev.change= Historic-Current)%>%
+  rename(Current.elev=Current,Historic.elev=Historic)
+
+
+area.wide <- elev.summary %>%
+  ungroup(.) %>%
+  dplyr::select(Site,Type,Data.Source,area) %>%
+  spread(Data.Source,area) %>%
+  arrange(Site) %>%
+  mutate(area.change= Historic-Current)%>%
+  rename(Current.area=Current,Historic.area=Historic)
+
+```
+
+
+###Slope
+
+```{r}
+slope.summary <- long.df %>%
+  filter(Data == 'Slope') %>%
+  filter(fdr.type=='f.inf') %>%
+  group_by(Site,Watershed,Type,Data.Source) %>% 
+  dplyr::summarize(max=max(value),
+            min=min(value),
+            median=round(median(value),2),
+            mean=mean(value),
+            sd=sd(value)) %>%
+  mutate(relief=max-min) 
+
+slope.summary
+
+s.wide <- slope.summary %>%
+  ungroup(.) %>%
+  dplyr::select(Site,Type,Data.Source,median) %>%
+  spread(Data.Source,median) %>%
+  mutate(slope.change= Historic-Current)%>%
+  arrange(Site) %>%
+  rename(Current.slope=Current,Historic.slope=Historic)
+
+```
+
+### Drainage density
+
+I'm pretty sure previous work has identified 100 pixels has channel heads so that would be 10,000 m2 
+```{r}
+
+drainage.density <- long.df %>%
+  filter(Data == 'UAA') %>%
+  filter(fdr.type=='f.inf') %>%
+  group_by(Site,Watershed,Type,Data.Source) %>% 
+  dplyr::summarize(drainage.length = length(which(value > 1000)),
+                   drainage.area=n(),
+                   drainage.density=round(drainage.length/drainage.area,3))
+
+
+d.wide <- drainage.density %>%
+  ungroup(.) %>%
+  dplyr::select(Site,Type,Data.Source,drainage.density) %>%
+  spread(Data.Source,drainage.density) %>%
+  mutate(DD.change= Historic-Current)%>%
+  arrange(Site) %>%
+  rename(Current.DD=Current,Historic.DD=Historic)
+
+d.wide
+
+```
+
+
+
+
+
+```{r}
+
+
+
+```
+
+
+
+
+
+##Total summary 
+```{r}
+site.summary <- pmine.dat %>%
+  left_join(e.wide,by=c('Site')) %>%
+  left_join(area.wide,by=c('Site','Type')) %>%
+  left_join(s.wide,by=c('Site','Type'))  %>%
+  left_join(d.wide,by=c('Site','Type'))
+
+write_csv(site.summary,path='Figures2018/SiteSummary.csv')
+```
+
+
+# OG Geomorph plots
+
+
+
+
+## UAA Slope Cutting
+
+```{r}
+#keep only f.inf data
+#Reference sites are slightly smaller on average so they need a smaller value for switching bin width from lots per bin (1000) to fewer (100)
+
+uaa.small <- long.df %>%
+  dplyr::filter(fdr.type=='f.inf') %>%
+  dplyr::filter(Data!='Elev') %>%
+  #Sites less than 6km2 get smaller cut break
+  select(Site,Type,Data,Data.Source,value,index) %>%
+  spread(key=Data,value) %>%
+  dplyr::filter(UAA <= 6*1000*1000) %>%
+  mutate(area.m2 = round(UAA*10,0)) %>%
+  group_by(Site,Data.Source) %>%
+  mutate(area.bins = ifelse(area.m2 < 20000,Hmisc::cut2(area.m2,m=200),Hmisc::cut2(area.m2,m=50))) %>%
+  ungroup() %>%
+  group_by(Site,Type,Data.Source,area.bins) %>%
+  dplyr::summarize(sd.slope=sd(Slope,na.rm=T),
+                  Slope=mean(Slope),
+                   n=n(),
+                    UAA=mean(area.m2))
+
+
+
+
+#only change here is cut point for switching bin width size
+uaa.big <- long.df %>%
+  dplyr::filter(fdr.type=='f.inf') %>%
+  dplyr::filter(Data!='Elev') %>%
+  select(Site,Type,Data,Data.Source,value,index) %>%
+  spread(key=Data,value) %>%
+  #Sites greater than 6km2 get smaller cut break
+  dplyr::filter(UAA > 6*1000*1000) %>%
+  mutate(area.m2 = round(UAA*10,0)) %>%
+  group_by(Site,Data.Source) %>%
+  mutate(area.bins = ifelse(area.m2 < 40000,Hmisc::cut2(area.m2,m=200),Hmisc::cut2(area.m2,m=50))) %>%
+  group_by(Site,Type,Data.Source,area.bins) %>%
+  dplyr::summarize(sd.slope=sd(Slope,na.rm=T),
+                    Slope=mean(Slope),
+                   n=n(),
+                    UAA=mean(area.m2))
+
+uaa <- bind_rows(uaa.small,uaa.big)
+
+
+```
+
+
+
+## EI 
+```{r}
+
+pdf(file='Figures2018/EI.UAA.pdf',width=10,height=5)
+uaa %>%
+  ungroup(.) %>%
+  mutate(Site=gsub('Ref','',Site)) %>%
+  mutate(EI = Slope*UAA) %>%
+  ggplot(aes(x=UAA,y=EI,color=Data.Source)) + 
+  geom_point() + 
+  facet_grid(Type ~ Site) + 
+  scale_colour_few() +
+  ylab('Energy Index (m2)') + 
+  theme(legend.position='top',legend.direction = 'horizontal') + 
+  scale_y_log10() + 
+  xlab(expression(paste('Area (',m^2,')'))) + 
+    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) 
+dev.off()
+
+```
+
+
+
+
+##SA SD
+```{r}
+
+library(ggthemes)
+
+pdf(file='figures2018/SA.SD.pdf',width=10,height=5)
+uaa %>%
+  ungroup(.) %>%
+  mutate(Site = gsub('Ref','',Site)) %>%
+  ggplot(aes(x=UAA,y=sd.slope,color=Data.Source)) + 
+  geom_point() + 
+  facet_grid(Type ~ Site) + 
+  scale_colour_few() +
+  ylab('SD Slope (m/m)') + 
+  theme(legend.position='top',legend.direction = 'horizontal') + 
+  scale_y_log10(limits=c(0.01,1)) + 
+  xlab(expression(paste('Area (',m^2,')'))) + 
+    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) 
+dev.off()
+
+
+```
+
+
+##SA Derv
+```{r}
+
+#Make a dataframe with seamless UAA for derivation
+full.uaa <- tibble(UAA=10^seq(2,7,.01))
+
+myloess <- function(data){
+  mod <- loess(log10(Slope) ~ log10(UAA),span=0.4,data=data)
+}
+
+
+
+uaa.nest <- uaa %>% 
+  group_by(Site,Type,Data.Source) %>%
+  nest() %>%
+  mutate(mods=purrr::map(data,myloess)) 
+
+
+uaa.seam <- uaa.nest %>%
+  mutate(newdata=full.uaa) %>%
+  unnest(newdata) %>%
+  rename(UAA=newdata) %>%
+  group_by(Site,Type,Data.Source) %>%
+  nest() %>%
+  rename(newdata=data) %>%
+  full_join(uaa.nest,by=c('Site','Type','Data.Source')) %>%
+  mutate(pred=map2(mods,newdata,predict)) %>%
+  unnest(newdata,pred) %>%
+  mutate(pred=10^pred) %>%
+  na.omit(.)
+
+
+uaa.dif <- uaa.seam %>%
+  group_by(Site,Type,Data.Source) %>%
+  arrange(desc(UAA)) %>%
+  mutate(derv=c(NA,diff(log10(pred))/(diff(log10(UAA))))) %>%
+  ungroup()
+
+
+
+
+```
+
+## SA Break ID
+```{r}
+#Using the derivitave data we can automate most of the slope breaks
+
+#Breaks come at 0 value, min value and 
+#Use closest from DescTools to get closes value to zero
+library(DescTools)
+library(strucchange) #Winner winner chicken dinner!
+library(doMC)
+#Frist breaks are befrore 10^4 by visual inspection. First minimum is generally the biggest minimum but not for all sites particularly post-mining
+
+
+hillslope.breaks <- uaa.dif %>%
+  group_by(Data.Source,Site,Type) %>%
+  mutate(max.mod = max(pred,na.rm=T)) %>% 
+  filter(pred == max.mod) %>%
+  arrange(Site,Type,Data.Source,UAA) %>%
+  mutate(breaks = c('b1')) %>%
+  dplyr::select(Site,Type,Data.Source,breaks,value=UAA,brk.derv=derv)
+
+
+
+#Find the alluvial break which is where the UAA Slope plot rolls over in the dervative space this after the break 2 minimum and at the next rolling maximum. This is always before 10^4.5 by visual inspection
+mybreaks <- function(sa.data){
+  sa.data <- sa.data %>%
+    filter(!is.na(pred)) %>%
+    filter(UAA > 0) %>%
+    arrange(UAA)
+  bkpt <- breakpoints(log10(sa.data$pred) ~ log10(sa.data$UAA),breaks=1,h=0.49,hpc='foreach',het.reg=T,het.err=T)
+  bk.points <-  sa.data %>%
+    filter(index %in% bkpt$breakpoints)
+  return((bk.points))
+}
+
+
+
+
+
+
+alluvial.breaks <- uaa.dif %>%
+  left_join(hillslope.breaks,by=c('Data.Source','Site','Type')) %>%
+  filter(UAA >= value) %>%
+  filter(UAA < 10^4) %>%
+  group_by(Data.Source,Site,Type) %>%
+  mutate(index=1:n()) %>%
+  nest() %>%
+  mutate(alluvials=purrr::map(data,mybreaks)) %>%
+  unnest(alluvials) %>%
+  group_by(Data.Source,Site,Type) %>%
+  mutate(breaks=c('b2')) %>%
+  dplyr::select(Site,Type,Data.Source,breaks,value=UAA,brk.derv=derv)
+
+
+fluvial.breaks <- uaa.dif %>%
+  left_join(alluvial.breaks,by=c('Data.Source','Site','Type')) %>%
+  filter(UAA >= value) %>%
+  filter(UAA < 10^5.5) %>%
+  group_by(Data.Source,Site,Type) %>%
+  mutate(index=1:n()) %>%
+  nest() %>%
+  mutate(alluvials=purrr::map(data,mybreaks)) %>%
+  unnest(alluvials) %>%
+  group_by(Data.Source,Site,Type) %>%
+  mutate(breaks=c('b3')) %>%
+  dplyr::select(Site,Type,Data.Source,breaks,value=UAA,brk.derv=derv)
+
+
+
+sa.breaks<- bind_rows(hillslope.breaks,alluvial.breaks,fluvial.breaks) %>%
+  arrange(Site,Data.Source,value)
+
+sa.brk.wide <- sa.breaks %>%
+  dplyr::select(-brk.derv) %>%
+  spread(key=breaks,value=value)
+
+
+sa.mine.breaks <- sa.breaks %>%
+  filter(Type=='Mined') %>%
+  arrange(Site,Data.Source,Type) %>%
+  mutate(logb=log10(value))
+
+sa.unmine.breaks  <- sa.breaks %>%
+  filter(Type!='Mined') %>%
+  arrange(Site,Data.Source,Type)
+
+
+write_csv(sa.breaks,path='Figures2018/sa.breaks.csv')
+```
+
+##Region slopes
+```{r}
+library(tidyr)
+library(broom)
+uaa.brk <- uaa %>%
+  left_join(sa.brk.wide,by=c('Site',"Data.Source",'Type')) 
+
+summary(uaa.brk)
+
+sa.zone.lm <- function(sa.data){
+  mod <- lm(log10(Slope) ~ log10(UAA),data=sa.data)
+  keys <- tibble(adj.r.squared=glance(mod)$adj.r.squared,
+                 p.value=glance(mod)$p.value,
+                 reg.slope=tidy(mod)$estimate[2])
+  return(keys)
+}
+
+
+sa.z2<- uaa.brk %>%
+  filter(UAA > b1 & UAA < b2) %>%
+  group_by(Site,Data.Source,Type) %>%
+  nest() %>%
+  mutate(zone = 'z2') %>%
+  mutate(mods = map(data,sa.zone.lm)) %>%
+  unnest(mods) %>%
+  select(-data) %>%
+  arrange(Site,Data.Source)
+sa.z2
+
+
+sa.z23 <- uaa.brk %>%
+  filter(UAA > b1 ) %>%
+  group_by(Site,Data.Source,Type) %>%
+  nest() %>%
+  mutate(zone = 'z23') %>%
+  mutate(mods = map(data,sa.zone.lm)) %>%
+  unnest(mods) %>%
+  select(-data) %>%
+  arrange(Site,Data.Source)
+sa.z23
+
+sa.z3 <- uaa.brk %>%
+  filter(UAA > b2 & UAA <  b3) %>%
+  group_by(Site,Data.Source,Type) %>%
+  nest() %>%
+  mutate(zone = 'z4') %>%
+  mutate(mods = map(data,sa.zone.lm)) %>%
+  unnest(mods) %>%
+  select(-data)
+  
+sa.z4 <-  uaa.brk %>%
+  filter(UAA >  b3) %>%
+  group_by(Site,Data.Source,Type) %>%
+  nest() %>%
+  mutate(zone = 'z4') %>%
+  mutate(mods = map(data,sa.zone.lm)) %>%
+  unnest(mods) %>%
+  select(-data)
+sa.z4  
+
+zone.regressions <- bind_rows(sa.z2,sa.z3,sa.z23,sa.z4)
+write_csv(zone.regressions,path='Figures2018/sa.zone.regressions.csv')
+
+```
+
+
+## SA, Derv, Derv2
+```{r}
+sa.long <- uaa.dif %>%
+  select(Site,Type,Data.Source,data=pred,first=derv.mod,second=derv2,UAA) %>%
+  mutate(data=log10(data)) %>%
+  gather(key=derivative,value=value,-Site,-Type,-Data.Source,-UAA)
+
+
+pdf(file='Figures2018/SA.All.Derv.Mined.4.4.pdf',width=10,height=8)
+sa.long %>%
+  filter(Type == 'Mined') %>%
+  ggplot(.,aes(x=UAA,y=value,color=Data.Source)) + 
+  geom_line(size=1) + 
+    geom_vline(data=sa.mine.breaks,aes(xintercept=value,color=Data.Source)) + 
+  facet_grid(derivative~Site,scales='free_y') + 
+  scale_color_manual(values=c('red','blue')) + 
+
+  theme(legend.position='top',legend.direction='horizontal') + 
+    ylab('Slope (m/m)') +
+  xlab(expression(paste('Area (',m^2,')'))) + 
+    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) 
+dev.off()
+
+pdf(file='Figures2018/SA.All.Derv.UnMined.pdf',width=10,height=8)
+sa.long %>%
+  filter(Type != 'Mined') %>%
+  ggplot(.,aes(x=UAA,y=value,color=Data.Source)) + 
+  geom_line(size=1) + 
+  facet_grid(derivative~Site,scales='free_y') + 
+  scale_color_manual(values=c('orange3','purple4')) + 
+  geom_vline(data=sa.unmine.breaks,aes(xintercept=value,color=Data.Source)) + 
+  theme(legend.position='top',legend.direction='horizontal') + 
+    ylab('Slope (m/m)') +
+  xlab(expression(paste('Area (',m^2,')'))) + 
+    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) 
+dev.off()
+```
+
+
+##Breaks on rasters
+```{r}
+library(plot3D)
+library(doMC)
+names(all.list)[2] <- 'WhiteOakRef'
+registerDoMC(5)
+i=1
+foreach(i=1:length(all.list)) %dopar% {
+  library(raster)
+  library(tidyverse)
+  p <- all.list[[i]]
+  name<-names(all.list)[[i]]
+
+old.breaks <- sa.breaks %>%
+  filter(Site %in% name) %>%
+  filter(Data.Source == 'Historic')
+
+new.breaks <- sa.breaks %>%
+  filter(Site %in% name) %>%
+  filter(Data.Source != 'Historic')
+
+
+old.e <- p[[4]]
+old.a <- p[[10]]
+
+old.zones <- cut(old.a,breaks=c(0,old.breaks$value/10,maxValue(old.a)))
+
+
+
+new.e <- p[[1]]
+new.a <- p[[9]]
+new.zones <- cut(new.a,breaks=c(0,old.breaks$value/10,maxValue(new.a)))
+
+png(filename=paste('Figures2018/RasterZones/',name,'Zones.png',sep=''),width=10,height=6,units='in',res=200)
+  par(mfrow=c(1,2))
+  plot(old.e,col=gray.colors(50,start=0.1,end=0.8),main=paste('Historic',name))
+  plot(old.zones,col=c(NA,'purple2','red','black'),add=T,legend=F)
+  legend('top',col=c(NA,'purple2','red','black'),horiz=T,
+         legend=c('Zone 1','Zone 2','Zone 3','Zone 4'),pch=15)
+  
+  
+  
+  plot(new.e,col=gray.colors(50,start=0.1,end=0.8),main=paste('Current',name))
+  plot(new.zones,col=c(NA,'purple2','red','black'),add=T,legend=F)
+  legend('top',col=c(NA,'purple2','red','black'),horiz=T,
+         legend=c('Zone 1','Zone 2','Zone 3','Zone 4'),pch=15)
+dev.off()
+}
+
+
+
+```
+
+
+
+## Individual UAA plots
+```{r, eval=F}
+#plot with mined sites only 
+pdf(file='Figures2018/UAA.Slope.Mined.pdf',width=10,height=4)
+aa.g <- uaa %>% 
+  filter(Type == 'Mined') %>%
+  ggplot(aes(x=UAA,y=Slope,color=Data.Source)) + 
+  stat_smooth(se=F,method='loess',size=.6,span=.5) + 
+  geom_point(shape=1) + 
+  scale_y_log10(breaks=c(0.01,0.1,1),
+                labels=c(0.01,0.1,1),
+                limits=c(0.01,1)) + 
+  facet_wrap(~Site,ncol=5) + 
+  scale_color_manual(values=c('Red','Blue'),name='Data Source') +
+  geom_vline(data=sa.mine.breaks,aes(xintercept=value,color=Data.Source)) + 
+  theme(legend.position='top',legend.direction = 'horizontal')
+
+
+
+aa.g + 
+    ylab('Slope (m/m)') +
+  xlab(expression(paste('Area (',m^2,')'))) + 
+    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) 
+
+dev.off()
+
+pdf(file='Figures2018/UAA.Slope.UnMined.pdf',width=10,height=4)
+aa.ug <- uaa %>% 
+  filter(Type != 'Mined') %>%
+  ggplot(aes(x=UAA,y=Slope,color=Data.Source)) + 
+  stat_smooth(se=F,method='loess',size=.6,span=.5) + 
+  geom_point(shape=1) + 
+  scale_y_log10(breaks=c(0.01,0.1,1),
+                labels=c(0.01,0.1,1),
+                limits=c(0.01,1)) + 
+  facet_wrap(~Site,ncol=5) + 
+  scale_color_manual(values=c('Orange3','Purple4'),name='Data Source') +
+  geom_vline(data=sa.unmine.breaks,aes(xintercept=value,color=Data.Source)) + 
+  theme(legend.position='top',legend.direction = 'horizontal')
+
+
+
+aa.ug + 
+    ylab('Slope (m/m)') +
+  xlab(expression(paste('Area (',m^2,')'))) + 
+    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) 
+
+dev.off()
+
+
+pdf(file='Figures2018/UAA.Slope.Derv.Mined.pdf',width=10,height=4)
+
+aa.derv.g <- uaa.dif %>% 
+  filter(Type == 'Mined') %>%
+  ggplot(aes(x=UAA,y=derv,color=Data.Source)) + 
+  geom_point(shape=1) + 
+  # #scale_y_continuous(breaks=c(-.0002,0,0.0002),
+  #               labels=c(-.0002,0,0.0002),
+  #               limits=c(-.0002,0.0002)) + 
+  facet_wrap(~Site,ncol=5) + 
+  theme(legend.position = 'top',legend.direction='horizontal') + 
+  scale_color_manual(values=c('Red','Blue')) + 
+  geom_vline(data=sa.mine.breaks,aes(xintercept=value,color=Data.Source))
+
+aa.derv.g + 
+    ylab('UAA/Slope Derivative') +
+  xlab(expression(paste('Area (',m^2,')'))) + 
+    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) 
+
+dev.off()
+
+
+pdf(file='Figures2018/UAA.Slope.Derv.UnMined.pdf',width=10,height=4)
+
+aa.u.derv.g <- uaa.dif %>% 
+  filter(Type != 'Mined') %>%
+  ggplot(aes(x=UAA,y=derv,color=Data.Source)) + 
+  geom_point(shape=1) + 
+  # #scale_y_continuous(breaks=c(-.0002,0,0.0002),
+  #               labels=c(-.0002,0,0.0002),
+  #               limits=c(-.0002,0.0002)) + 
+  facet_wrap(~Site,ncol=5) + 
+  theme(legend.position = 'top',legend.direction='horizontal') + 
+  scale_color_manual(values=c('Orange3','Purple4')) + 
+  geom_vline(data=sa.unmine.breaks,aes(xintercept=value,color=Data.Source))
+
+aa.u.derv.g + 
+    ylab('UAA/Slope Derivative') +
+  xlab(expression(paste('Area (',m^2,')'))) + 
+    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) 
+
+dev.off()
+
+
+```
+
+
+#CAD
+
+
+```{r}
+#Cut uaa into a sequential cad with a equally spaced sequence (equal in log space)
+
+cad <- long.df %>%
+  dplyr::filter(fdr.type=='f.inf') %>%
+  dplyr::filter(Data!='Elev') %>%
+  #Sites less than 6km2 get smaller cut break
+  select(Site,Type,Data,Data.Source,value,index) %>%
+  spread(key=Data,value) %>%
+  mutate(area.m2 = round(UAA*10,0)) %>%
+  group_by(Site,Data.Source) %>%
+  mutate(area.bins = cut(area.m2,breaks=unique(area.m2)))%>%
+  ungroup() %>%
+  group_by(Site,Type,Data.Source,area.bins) %>%
+  dplyr::summarize(UAA=mean(area.m2,na.rm=T),
+                   UAA.sd = sd(area.m2,na.rm=T)) %>%
+  group_by(Site,Type,Data.Source,UAA) %>%
+  summarise(Freq=n()) %>%
+  arrange(Site,Type,Data.Source,desc(UAA)) %>%
+  mutate(Cume_Freq=(cumsum(Freq)/sum(Freq))) %>%
+  mutate(revuaa=rev(UAA)) %>%
+  mutate(smooth.freq=runmed(Cume_Freq,5)) 
+  
+
+  
+
+
+cad %>% 
+  filter(Site == 'Mud') %>%
+  sample_frac(0.1) %>%
+ggplot(.,aes(x=UAA,y=Cume_Freq,color=Data.Source)) + 
+  geom_point(shape=1) + 
+  scale_x_log10() + 
+  scale_y_log10() + 
+  facet_wrap(~Site,ncol=5) 
+
+
+```
+
+## Cad breaks
+
+```{r}
+
+
+mycad.breaks <- function(cad.data){
+  cad.model <- cad.data %>%
+    filter(UAA > 0) %>%
+    arrange(UAA)
+  bkpt <- Fstats(log10(cad.model$Cume_Freq) ~ log10(cad.model$UAA),from=0.5)
+  bk.points <-  cad.data %>%
+    filter(index %in% bkpt$breakpoint)
+  return((bk.points))
+}
+
+
+
+#Data density for CAD is much higher than SA so this takes ~ 10 minutes to run
+#Shortened the runtime by trimming data to a region that captures all breaks across all sites when run across full data. 
+diffusecad <- cad %>%
+  filter(UAA < 5000 ) %>%
+  group_by(Data.Source,Site,Type) %>%
+  mutate(index=1:n()) %>%
+  nest() %>%
+  mutate(hills=purrr::map(data,mycad.breaks)) %>%
+  unnest(hills) %>%
+  group_by(Data.Source,Site,Type) %>%
+  mutate(breaks=c('b1')) %>%
+  dplyr::select(Site,Type,Data.Source,breaks,value=UAA)
+
+incisioncad <- cad %>%
+  left_join(diffusecad,by=c('Site','Type','Data.Source')) %>%
+  filter(UAA > value) %>%
+  mutate(index=1:n()) %>%
+  nest() %>%
+  mutate(incise=purrr::map(data,mycad.breaks)) %>%
+  unnest(incise) %>%`
+  group_by(Data.Source,Site,Type) %>%
+  mutate(breaks=c('b2')) %>%
+  dplyr::select(Site,Type,Data.Source,breaks,value=UAA)
+  
+cad.breaks <- bind_rows(diffusecad,incisioncad)
+cad %>% 
+ggplot(.,aes(x=UAA,y=Cume_Freq,color=Data.Source)) + 
+  geom_point(shape=1) + 
+  scale_x_log10() + 
+  scale_y_log10(limits=c(0.005,1)) + 
+  facet_wrap(~Site,ncol=5) + 
+  geom_vline(data=cad.breaks,aes(xintercept=value,color=Data.Source)) + 
+  theme(legend.position = 'top',legend.direction = 'horizontal')
+
+
+```
+
+
+## UAA Density
+```{r}
+
+pdf(file='Figures2018/UAA.Density.pdf',width=10,height=5)
+cad %>% 
+  ggplot(.,aes(x=UAA, fill=Data.Source)) +
+  geom_density(alpha=0.5) + 
+  scale_x_log10() + 
+  scale_fill_manual(values=c('Red','Blue')) + 
+  facet_wrap(~Site,ncol=5) + 
+  theme(legend.position = 'top',legend.direction='horizontal')  
+
+dev.off()
+
+```
+
+
+
+## Cad Derv
+```{r}
+
+cadloess <- function(data){
+  mod <- loess(log10(Cume_Freq) ~ log10(UAA),span=0.1,data=data)
+}
+
+
+
+cad.nest <- cad %>% 
+  group_by(Site,Type,Data.Source) %>%
+  nest() %>%
+  mutate(mods=purrr::map(data,cadloess)) 
+
+
+
+
+cad.seam <- cad.nest %>%
+  mutate(newdata=full.uaa) %>%
+  unnest(newdata) %>%
+  rename(UAA=newdata) %>%
+  group_by(Site,Type,Data.Source) %>%
+  nest() %>%
+  rename(newdata=data) %>%
+  full_join(cad.nest,by=c('Site','Type','Data.Source')) %>%
+  mutate(pred=map2(mods,newdata,predict)) %>%
+  unnest(newdata,pred) %>%
+  mutate(pred=10^pred) %>%
+  na.omit(.)
+
+cad.dif <- cad.seam %>%
+  group_by(Site,Type,Data.Source) %>%
+  arrange(UAA) %>%
+  mutate(derv=c(NA,diff(log10(pred))/(diff(log10(UAA))))) %>%
+  mutate(derv2=c(NA,diff(derv)/diff(log10(UAA)))) %>%
+  ungroup()
+
+
+ggplot(cad.dif,aes(x=UAA,y=derv,color=Data.Source)) + 
+  geom_point(shape=1)+
+  facet_wrap(~Site,ncol=5) + 
+  scale_x_log10() + 
+  geom_vline(data=hillcad,aes(xintercept=UAA,color=Data.Source))
+
+```
+
+
+
+
+## Cad Break IDs
+```{r}
+## At this time cad breaks are a little more concfusing for me. But there are two clear regions of sharp change, maybe three.
+
+#Break 1 is the region in the Cad plot where the Cumulative Frequency starts a much steeper incline. This is shown as the minimum in the derivative. 
+cad.b1 <- cad.dif %>%
+  group_by(Site,Data.Source,Type) %>%
+  filter(derv2 == min(derv2,na.rm=T)) %>%
+  mutate(breaks='b1') %>%
+  select(Site,Type,Data.Source,value=UAA,breaks) 
+  
+
+#The second break is a little harder to identify but it is essentially the second break point when the cume frequency returns to a flatter decline. This si shown by a local maxima in the deriviative. #So if we use the second deriviative to identify this maxima it is the closest point to zero when the second derivative is decreasing. It firsts hits zero when it reaches the minima used ti identify b1. B2 then is th enext time it crosses zero. For all site this is before UAA is greater than 10^5, as identified by visual inspection
+
+cad.b2 <- cad.dif %>%
+  group_by(Site,Data.Source,Type) %>%
+  left_join(cad.b1,by=c('Site','Data.Source','Type')) %>%
+  filter(UAA > value & UAA < 10^5)%>% 
+  filter(derv==max(derv,na.rm=T)) %>%
+  mutate(breaks='b2') %>%
+  select(Site,Type,Data.Source,value=UAA,breaks) 
+
+
+# The thirdd break is where it steepens again which is shown by another local minima. Basically the minimum beyond the second break. 
+cad.b3 <- cad.dif %>%
+  group_by(Site,Data.Source,Type) %>%
+  left_join(cad.b2,by=c('Site','Data.Source','Type')) %>%
+  filter(UAA > value) %>%
+  filter(derv==min(derv)) %>%
+  mutate(breaks='b3') %>%
+  select(Site,Type,Data.Source,value=UAA,breaks) 
+
+cad.b3
+
+cad.breaks <- bind_rows(cad.b1,cad.b2)
+cad.mine.breaks <- cad.breaks %>%
+  filter(Type=='Mined')
+
+cad.unmine.breaks <- cad.breaks %>%
+  filter(Type!='Mined')
+
+```
+
+##Cad individual plots
+
+```{r}
+#plot with mined sites only 
+pdf(file='Figures2018/CAD.Mined.pdf',width=10,height=4)
+cad.g <- cad %>% 
+  filter(Type == 'Mined') %>%
+  ggplot(aes(x=UAA,y=Cume_Freq,color=Data.Source)) + 
+  stat_smooth(se=F,method='loess',size=.6,span=.3)+ 
+  geom_point(shape=1)  + 
+  scale_y_log10() + 
+  facet_wrap(~Site,ncol=5) + 
+  scale_color_manual(values=c('Red','Blue'),name='Data Source') +
+  geom_vline(data=cad.mine.breaks,aes(xintercept=value,color=Data.Source)) + 
+  theme(legend.position='top',legend.direction = 'horizontal')
+
+
+
+cad.g + 
+    ylab('Freq') +
+  xlab(expression(paste('Area (',m^2,')'))) + 
+    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) 
+
+dev.off()
+pdf(file='Figures2018/CAD.UnMined.pdf',width=10,height=4)
+cad.ug <- cad %>% 
+  filter(Type != 'Mined') %>%
+  ggplot(aes(x=UAA,y=Cume_Freq,color=Data.Source)) + 
+  stat_smooth(se=F,method='loess',size=.6,span=.3)+ 
+  geom_point(shape=1)  + 
+  scale_y_log10() + 
+  facet_wrap(~Site,ncol=5) + 
+  scale_color_manual(values=c('Orange3','Purple4'),name='Data Source') +
+  geom_vline(data=cad.unmine.breaks,aes(xintercept=value,color=Data.Source)) + 
+  theme(legend.position='top',legend.direction = 'horizontal')
+
+
+
+cad.ug + 
+    ylab('Freq') +
+  xlab(expression(paste('Area (',m^2,')'))) + 
+    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) 
+
+dev.off()
+
+
+pdf(file='Figures2018/CadDerv.Mined.pdf',width=10,height=4)
+
+cad.derv.g <- cad.dif %>% 
+  filter(Type == 'Mined') %>%
+  ggplot(aes(x=UAA,y=derv,color=Data.Source)) + 
+  geom_point(shape=1) + 
+  # #scale_y_continuous(breaks=c(-.0002,0,0.0002),
+  #               labels=c(-.0002,0,0.0002),
+  #               limits=c(-.0002,0.0002)) + 
+  facet_wrap(~Site,ncol=5) + 
+  theme(legend.position = 'top',legend.direction='horizontal') + 
+  scale_color_manual(values=c('Red','Blue')) + 
+  geom_vline(data=cad.mine.breaks,aes(xintercept=value,color=Data.Source))
+
+
+
+cad.derv.g + 
+    ylab('CAD Derivative') +
+  xlab(expression(paste('Area (',m^2,')'))) + 
+    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) 
+
+dev.off()
+
+pdf(file='Figures2018/CadDerv.UnMined.pdf',width=10,height=4)
+
+cad.derv.g <- cad.dif %>% 
+  filter(Type != 'Mined') %>%
+  ggplot(aes(x=UAA,y=derv,color=Data.Source)) + 
+  geom_point(shape=1) + 
+  # #scale_y_continuous(breaks=c(-.0002,0,0.0002),
+  #               labels=c(-.0002,0,0.0002),
+  #               limits=c(-.0002,0.0002)) + 
+  facet_wrap(~Site,ncol=5) + 
+  theme(legend.position = 'top',legend.direction='horizontal') + 
+  scale_color_manual(values=c('Orange3','Purple4')) + 
+  geom_vline(data=cad.unmine.breaks,aes(xintercept=value,color=Data.Source))
+
+
+
+cad.derv.g + 
+    ylab('CAD Derivative') +
+  xlab(expression(paste('Area (',m^2,')'))) + 
+    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) 
+
+dev.off()
+
+
+
+```
+
+
+
+
+
+#Supplement way too much detail
+
+##Check for differences between flow direction algorithm (f8 or f.infinity)
+
+###Flow direction differnces in Uplsope Accumulated Area (UAA) for reference sites
+```{r, fig.width=10,fig.height=6,eval=F}
+
+load('UAA.E.Slope.Ref.RData')
+load('ras.stack.ref.RData')
+load('Long.DF.RData')
+
+
+
+#Elevation is not impacted. 
+fdr.diff <- long.df %>%
+  filter(Data != 'Elev') %>% 
+  select(Watershed,Site,Data,Data.Source,fdr.type,value,index,Type) %>%
+  spread(key=fdr.type,value=value) %>%
+  group_by(Watershed,Data,Data.Source) %>%
+  #Account for the difference in pixel counting methods by dividng f.inf by 10 for UAA
+  mutate(f.inf.cor=ifelse(Data == 'UAA',f.inf/10,f.inf)) %>%
+  mutate(fdr.dif=f.8-f.inf) %>%
+  #Filter out errors where watershed sizes differ giving very large FDR differences
+  filter(fdr.dif > -500 & fdr.dif < 500) %>%
+  ungroup(.) 
+
+fdr.diff %>%
+  filter(Data == 'UAA') %>%
+ggplot(.,aes(x=fdr.dif,color=Data.Source)) + stat_density(geom='line',size=1.2) +
+  facet_wrap(~Watershed + Type,scales='fixed') + 
+  xlab('Flow Accumulation Difference in m2 (F.8-F.Inf)') + 
+  theme(legend.position=c(.8,.15)) +
+  scale_color_manual(values=c('#762a83','#1b7837','#b2182b','#2166ac'))
+
+
+```
+
+
+
+
+###Flow Direction Differences in Slope
+```{r, fig.width=10,fig.height=6,eval=F}
+
+fdr.diff %>%
+  filter(Data == 'Slope') %>%
+ggplot(.,aes(x=fdr.dif,color=Data.Source)) + stat_density(geom='line',size=1.2) +
+  facet_wrap(~Watershed + Type,scales='fixed') + 
+  xlab('Slope in m/m (F.8-F.Inf)') + 
+  theme(legend.position=c(.8,.2)) +
+  scale_color_manual(values=c('#762a83','#1b7837','#b2182b','#2166ac'))
+
+```
+
+

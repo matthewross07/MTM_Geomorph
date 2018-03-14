@@ -1,0 +1,14 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+.httr-oauth
+*.RData
+*.Rdata
+*.tif
+*.shp
+*.dbf
+*.sbx
+*.prj
+*.xml
+
