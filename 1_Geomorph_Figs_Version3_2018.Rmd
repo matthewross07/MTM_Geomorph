@@ -573,49 +573,27 @@ write_csv(zone.regressions,path='Figures2018/sa.zone.regressions.csv')
 ## FInal SA Plots
 ```{r}
 
-
-sa.mine.old.breaks <- sa.mine.breaks %>%
-  filter(Data.Source == 'Historic')
-
-mined.sa <- uaa %>%
+sa.breaks$Site <- gsub('Ref','',sa.breaks$Site)
+sa.all <- uaa %>%
   select(Site,Type,Data.Source,UAA,Slope) %>%
-  filter(Type == 'Mined') %>%
-  ggplot(.,aes(x=UAA,y=Slope,color=Data.Source)) + 
+  ungroup() %>%
+  mutate(Site = gsub('Ref','',Site)) %>%
+  ggplot(.,aes(x=UAA,y=Slope,color=interaction(Data.Source,Type))) + 
   geom_point(size=1) + 
   stat_smooth(method='loess',span=0.4,se=F) + 
-  geom_vline(data=sa.mine.old.breaks,aes(xintercept=value,color=Data.Source)) + 
+  geom_vline(data=sa.breaks,aes(xintercept=value,color=interaction(Data.Source,Type))) + 
   facet_grid(Type~Site,scales='free_y') + 
-  scale_color_manual(name='Data Source',values=c('red','blue')) + 
+  scale_color_manual(name='Data Source',values=c('red','blue','Orange3','Purple4')) + 
   theme(legend.position='top',legend.direction='horizontal') + 
   ylab('Slope (m/m)') +
-  xlab('') +
-  scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
-              labels = trans_format("log10", math_format(10^.x))) + 
-  scale_y_log10(limits=c(0.01,1),breaks=c(0.01,0.1,1))
-
-sa.unmine.new.breaks <- sa.unmine.breaks %>%
-  filter(Data.Source != 'Current')
-
-unmined.sa <- uaa %>%
-  select(Site,Type,Data.Source,UAA,Slope) %>%
-  filter(Type != 'Mined') %>%
-  ggplot(.,aes(x=UAA,y=Slope,color=Data.Source)) + 
-  geom_point(size=1) + 
-  stat_smooth(method='loess',span=0.4,se=F) + 
-  geom_vline(data=sa.unmine.new.breaks,aes(xintercept=value,color=Data.Source)) + 
-  facet_grid(Type~Site,scales='free_y') + 
-  scale_color_manual(name='Data Source',values=c('Orange3','Purple4')) + 
-  theme(legend.position='top',legend.direction='horizontal') + 
-  ylab('Slope (m/m)') +
-  xlab(expression(paste('Area (',m^2,')'))) + 
+  xlab(expression(paste('Upslope Accumulated Area (',m^2,')'))) + 
   scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
               labels = trans_format("log10", math_format(10^.x))) + 
   scale_y_log10(limits=c(0.01,1),breaks=c(0.01,0.1,1))
 
 
 pdf(file='Figures2018/SA.All.pdf',width=10,height=6)
-
-ggarrange(mined.sa,unmined.sa,ncol=1,nrow=2,heights=c(1,1.1),legend='top')
+sa.all
 
 dev.off()
 
@@ -679,7 +657,7 @@ dev.off()
 
 
 
-# CAD
+# Cumulative area distribution
 
 
 ```{r}
@@ -691,7 +669,7 @@ cad <- long.df %>%
   #Sites less than 6km2 get smaller cut break
   select(Site,Type,Data,Data.Source,value,index) %>%
   spread(key=Data,value) %>%
-  mutate(area.m2 = round(UAA*10,0)) %>%
+  mutate(area.m2 = round(UAA*10,1)) %>%
   group_by(Site,Data.Source) %>%
   mutate(area.bins = cut(area.m2,breaks=unique(area.m2)))%>%
   ungroup() %>%
@@ -706,20 +684,9 @@ cad <- long.df %>%
   mutate(smooth.freq=runmed(Cume_Freq,5)) 
   
 
-  
-
-
-cad %>% 
-  filter(Site == 'Mud') %>%
-  sample_frac(0.1) %>%
-ggplot(.,aes(x=UAA,y=Cume_Freq,color=Data.Source)) + 
-  geom_point(shape=1) + 
-  scale_x_log10() + 
-  scale_y_log10() + 
-  facet_wrap(~Site,ncol=5) 
-
 
 ```
+
 
 ## Cad breaks
 
@@ -753,26 +720,51 @@ diffusecad <- cad %>%
 
 incisioncad <- cad %>%
   left_join(diffusecad,by=c('Site','Type','Data.Source')) %>%
-  filter(UAA > value) %>%
+  filter(UAA > value+1000 & UAA < 10^5) %>%
   mutate(index=1:n()) %>%
   nest() %>%
   mutate(incise=purrr::map(data,mycad.breaks)) %>%
-  unnest(incise) %>%`
+  unnest(incise) %>%
   group_by(Data.Source,Site,Type) %>%
   mutate(breaks=c('b2')) %>%
   dplyr::select(Site,Type,Data.Source,breaks,value=UAA)
-  
-cad.breaks <- bind_rows(diffusecad,incisioncad)
-cad %>% 
-ggplot(.,aes(x=UAA,y=Cume_Freq,color=Data.Source)) + 
+
+stemcad <- cad %>%
+  left_join(incisioncad,by=c('Site','Type','Data.Source')) %>%
+  filter(UAA > value+50000 & Cume_Freq > 0.01) %>%
+  mutate(index=1:n()) %>%
+  nest() %>%
+  mutate(incise=purrr::map(data,mycad.breaks)) %>%
+  unnest(incise) %>%
+  group_by(Data.Source,Site,Type) %>%
+  mutate(breaks=c('b3')) %>%
+  dplyr::select(Site,Type,Data.Source,breaks,value=UAA)
+
+cad.breaks <- bind_rows(diffusecad,incisioncad,stemcad) %>%
+  ungroup() %>%
+   mutate(Site = gsub('Ref','',Site))
+
+
+cad.g <- cad %>% 
+  ungroup() %>%
+  mutate(Site = gsub('Ref','',Site)) %>%
+ggplot(.,aes(x=UAA,y=Cume_Freq,color=interaction(Data.Source,Type),size=Data.Source)) + 
   geom_point(shape=1) + 
-  scale_x_log10() + 
-  scale_y_log10(limits=c(0.005,1)) + 
-  facet_wrap(~Site,ncol=5) + 
-  geom_vline(data=cad.breaks,aes(xintercept=value,color=Data.Source)) + 
-  theme(legend.position = 'top',legend.direction = 'horizontal')
+  scale_size_manual(name='',guide=F,values=c(1.2,0.4)) +
+  scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x)))  + scale_y_log10(limits=c(0.001,1),breaks=c(0.001,0.01,0.1,1)) + 
+  facet_grid(Type~Site) + 
+  geom_vline(data=cad.breaks,aes(xintercept=value,color=interaction(Data.Source,Type))) + 
+  theme(legend.position = 'top',legend.direction = 'horizontal') +
+  scale_color_manual(name='Data Source',values=c('red','blue','orange3','purple4')) +
+  ylab('P (A>A*)') + 
+  xlab(expression(paste('Upslope Accumulated Area (',m^2,')'))) 
 
 
+pdf(file='Figures2018/CAD.All.pdf',width=10,height=6)
+cad.g
+
+dev.off()
 ```
 
 
