@@ -10,9 +10,9 @@ editor_options:
   chunk_output_type: console
 ---
 
-#Geomorph open source style
+# Geomorph open source style
 
-```{r,include=F}
+```{r setup,include=F}
 library(stringr)
 library(raster)
 library(tidyverse)
@@ -36,7 +36,7 @@ library(zoo)
 library(knitr)
 library(kableExtra)
 library(tidyr)
-
+library(ggpubr)
 
 #Set ggplot2 theme
 matt_theme <- theme_set(theme_bw())
@@ -49,31 +49,25 @@ matt_theme<- theme_update(axis.line = element_line(colour = "black"),
 )
 
 
-#Load in long data
-load('data/out/Long.DF.RData')
 
-#Load in raster data
+#Loads stack.df a wide data frame with all rasters for 5 sites
 load('data/out/UAA.E.Slope.Ref.RData')
 load('data/out/ras.stack.ref.RData')
 
 
 
-
+#Load in the long dataset from above chunk.
+#Load in long data
+load('data/out/Long.DF.RData')
 ```
 
 
-## General site summary data
+## Convert data to long format
 
 In the following code chunk I load in the data convert it into long data and 
 make sensible column names. I then save this file so I don't have to perform 
 the operations again. 
 ```{r,eval=F}
-#Loads stack.df a wide data frame with all rasters for 5 sites
-
-load('data/out/UAA.E.Slope.Ref.RData')
-load('data/out/ras.stack.ref.RData')
-
-
 
 
 #Add an index column
@@ -118,43 +112,58 @@ dat.check <- long.df %>%
 ```
 
 
-# Raw site summaries (median elevation, total relief, etc...)  for changes on old elevation profile
+# Raw site summaries
 
-## %mining
+Summary statistics (median elevation, total relief, etc...) for each watershed. 
+
+## Percent mining
+
+While we attempted to capture control watersheds that were entirely unmined and mined watersheds that were > 80% mined, there is still variation around the amount of mining in each watershed. Here we use data from a paper by Andrew Pericack and others to find when and where mining occured and we use that layer to asses the mining coverage in each watershed as of 2011, when the post-mining watersheds were generated. 
+
 ```{r}
-#Read in mining detection layer
+
+
+#Read in mining detection layer from Pericack et al., 2018
 first.mined <- raster('data/in/FirstMinedCamp.tif') 
 
 #The first raster in the list of rasters (all list) is the elevation profile
 #of the current watershed delineation. Use this to get % mining for each site
 
-
+#Use foreach to speedup the operation. Using 3 cores instead of one
 cl <- makeCluster(3)
+#Register the cores (starts independent R Sessions)
 registerDoParallel(cl,cores=3)
+#Run a foreach loop that stores results in a list (pmine.list)
 pmine.list <- foreach(i=1:length(all.list)) %dopar% {
+  #Have to load in the important libraries for each session
   library(raster)
   library(tidyverse)
   library(rgeos)
+  #Read in the raw elevation profile (first in the list)
   ras.raw <- all.list[[i]][[1]] 
+  #Project the raster into the first.mined raster projection
   ras <-  projectRaster(ras.raw,crs=projection(first.mined)) 
-  
+  #Crop the mined raster
   mine.ras <- first.mined %>%
     crop(.,ras) 
-  
+  #Project the raster resolution onto the mine resolution (from 10 to 30m)
   ras.res <- projectRaster(ras,mine.ras)
-  
+  #Mask out the areas outside of the watershed
   mine.mask <- raster::mask(mine.ras,ras.res)
-  
+  #Get the number of mined pixels 
   ras.area = length(ras.res[!is.na(ras.res)])
-  
-  mine.area = length(mine.mask[mine.mask < 2015])
+  #Get the percent mining (mined pixels/total pixels)
+  mine.area = length(mine.mask[mine.mask < 2012])
   pmine=mine.area/ras.area
-  
+  #Store this as a data frame. 
   dat <- tibble(pmine=pmine,
                 Site=names(all.list)[[i]],
                 area=round(length(ras.raw[!is.na(ras.raw)])*100/(1000*1000),1))
 }
+#End the foreach loop
 endCluster()
+
+#Cast the data into a sensible data frame 
 pmine.dat <- do.call('rbind',pmine.list) %>%
   mutate(Site=gsub('WhiteRef','WhiteOakRef',Site)) %>%
   mutate(pmine=round(pmine,2)*100) %>%
@@ -169,12 +178,12 @@ pmine.dat <- do.call('rbind',pmine.list) %>%
 
 
 
-###Elevation
+### Elevation
+
+The elevation profiles of the watersheds change following mining. Summary statistics on changes are calculated here. 
 ```{r}
 
-
-
-library(tidyverse)
+#Summarize stats by watershed. 
 elev.summary <- long.df %>%
   filter(Data == 'Elev') %>%
   filter(Key %in% c('Old.e.old','New.e.new')) %>%
@@ -188,29 +197,33 @@ elev.summary <- long.df %>%
   mutate(relief=max-min) 
 
 
+#Turn the above long dataset into a wide format. 
 e.wide <- elev.summary %>%
   ungroup(.) %>%
   dplyr::select(Site,Type,Data.Source,median) %>%
   spread(Data.Source,median) %>%
   arrange(Site) %>% 
-  mutate(elev.change= Historic-Current)%>%
+  mutate(elev.change= Current/Historic)%>%
   rename(Current.elev=Current,Historic.elev=Historic)
 
-
+#Get the area data from above. 
 area.wide <- elev.summary %>%
   ungroup(.) %>%
   dplyr::select(Site,Type,Data.Source,area) %>%
   spread(Data.Source,area) %>%
   arrange(Site) %>%
-  mutate(area.change= Historic-Current)%>%
+  mutate(area.change= Current/Historic)%>%
   rename(Current.area=Current,Historic.area=Historic)
 
 ```
 
 
-###Slope
+### Slope
+
+Slope changes dramatically in mining landscapes and those changes are calculated here. 
 
 ```{r}
+#Calculate summary statistics for each watershed and data type 
 slope.summary <- long.df %>%
   filter(Data == 'Slope') %>%
   filter(fdr.type=='f.inf') %>%
@@ -222,21 +235,22 @@ slope.summary <- long.df %>%
             sd=sd(value)) %>%
   mutate(relief=max-min) 
 
-slope.summary
 
+#Widen that data. 
 s.wide <- slope.summary %>%
   ungroup(.) %>%
   dplyr::select(Site,Type,Data.Source,median) %>%
   spread(Data.Source,median) %>%
-  mutate(slope.change= Historic-Current)%>%
+  mutate(slope.change= Current/Historic)%>%
   arrange(Site) %>%
   rename(Current.slope=Current,Historic.slope=Historic)
+
 
 ```
 
 ### Drainage density
 
-I'm pretty sure previous work has identified 100 pixels has channel heads so that would be 10,000 m2 
+Our previous work has identified 1000 pixels has an approximate drainage area for the initiation of channels. 
 ```{r}
 
 drainage.density <- long.df %>%
@@ -248,24 +262,14 @@ drainage.density <- long.df %>%
                    drainage.density=round(drainage.length/drainage.area,3))
 
 
+
 d.wide <- drainage.density %>%
   ungroup(.) %>%
   dplyr::select(Site,Type,Data.Source,drainage.density) %>%
   spread(Data.Source,drainage.density) %>%
-  mutate(DD.change= Historic-Current)%>%
+  mutate(DD.change= Current/Historic)%>%
   arrange(Site) %>%
   rename(Current.DD=Current,Historic.DD=Historic)
-
-d.wide
-
-```
-
-
-
-
-
-```{r}
-
 
 
 ```
@@ -286,9 +290,7 @@ write_csv(site.summary,path='Figures2018/SiteSummary.csv')
 ```
 
 
-# OG Geomorph plots
-
-
+# Process Zones with Slope Area and Cumulative Area Distribution
 
 
 ## UAA Slope Cutting
@@ -341,32 +343,7 @@ uaa <- bind_rows(uaa.small,uaa.big)
 
 
 
-## EI 
-```{r}
-
-pdf(file='Figures2018/EI.UAA.pdf',width=10,height=5)
-uaa %>%
-  ungroup(.) %>%
-  mutate(Site=gsub('Ref','',Site)) %>%
-  mutate(EI = Slope*UAA) %>%
-  ggplot(aes(x=UAA,y=EI,color=Data.Source)) + 
-  geom_point() + 
-  facet_grid(Type ~ Site) + 
-  scale_colour_few() +
-  ylab('Energy Index (m2)') + 
-  theme(legend.position='top',legend.direction = 'horizontal') + 
-  scale_y_log10() + 
-  xlab(expression(paste('Area (',m^2,')'))) + 
-    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
-              labels = trans_format("log10", math_format(10^.x))) 
-dev.off()
-
-```
-
-
-
-
-##SA SD
+### Slope Area Standard Deviation Plots
 ```{r}
 
 library(ggthemes)
@@ -391,7 +368,10 @@ dev.off()
 ```
 
 
-##SA Derv
+##SA Derivative and Smoothing
+
+Detecting zone changes with the raw data detects too many spurious changes related to simple variability. Here we smooth the data using a simple LOESS spline. Then we detect process zones on the smoothed data. 
+
 ```{r}
 
 #Make a dataframe with seamless UAA for derivation
@@ -523,10 +503,11 @@ sa.unmine.breaks  <- sa.breaks %>%
 write_csv(sa.breaks,path='Figures2018/sa.breaks.csv')
 ```
 
-##Region slopes
+
+
+### Region slopes
 ```{r}
-library(tidyr)
-library(broom)
+
 uaa.brk <- uaa %>%
   left_join(sa.brk.wide,by=c('Site',"Data.Source",'Type')) 
 
@@ -589,54 +570,66 @@ write_csv(zone.regressions,path='Figures2018/sa.zone.regressions.csv')
 ```
 
 
-## SA, Derv, Derv2
+## FInal SA Plots
 ```{r}
-sa.long <- uaa.dif %>%
-  select(Site,Type,Data.Source,data=pred,first=derv.mod,second=derv2,UAA) %>%
-  mutate(data=log10(data)) %>%
-  gather(key=derivative,value=value,-Site,-Type,-Data.Source,-UAA)
 
 
-pdf(file='Figures2018/SA.All.Derv.Mined.4.4.pdf',width=10,height=8)
-sa.long %>%
+sa.mine.old.breaks <- sa.mine.breaks %>%
+  filter(Data.Source == 'Historic')
+
+mined.sa <- uaa %>%
+  select(Site,Type,Data.Source,UAA,Slope) %>%
   filter(Type == 'Mined') %>%
-  ggplot(.,aes(x=UAA,y=value,color=Data.Source)) + 
-  geom_line(size=1) + 
-    geom_vline(data=sa.mine.breaks,aes(xintercept=value,color=Data.Source)) + 
-  facet_grid(derivative~Site,scales='free_y') + 
-  scale_color_manual(values=c('red','blue')) + 
-
+  ggplot(.,aes(x=UAA,y=Slope,color=Data.Source)) + 
+  geom_point(size=1) + 
+  stat_smooth(method='loess',span=0.4,se=F) + 
+  geom_vline(data=sa.mine.old.breaks,aes(xintercept=value,color=Data.Source)) + 
+  facet_grid(Type~Site,scales='free_y') + 
+  scale_color_manual(name='Data Source',values=c('red','blue')) + 
   theme(legend.position='top',legend.direction='horizontal') + 
-    ylab('Slope (m/m)') +
-  xlab(expression(paste('Area (',m^2,')'))) + 
-    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
-              labels = trans_format("log10", math_format(10^.x))) 
-dev.off()
+  ylab('Slope (m/m)') +
+  xlab('') +
+  scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) + 
+  scale_y_log10(limits=c(0.01,1),breaks=c(0.01,0.1,1))
 
-pdf(file='Figures2018/SA.All.Derv.UnMined.pdf',width=10,height=8)
-sa.long %>%
+sa.unmine.new.breaks <- sa.unmine.breaks %>%
+  filter(Data.Source != 'Current')
+
+unmined.sa <- uaa %>%
+  select(Site,Type,Data.Source,UAA,Slope) %>%
   filter(Type != 'Mined') %>%
-  ggplot(.,aes(x=UAA,y=value,color=Data.Source)) + 
-  geom_line(size=1) + 
-  facet_grid(derivative~Site,scales='free_y') + 
-  scale_color_manual(values=c('orange3','purple4')) + 
-  geom_vline(data=sa.unmine.breaks,aes(xintercept=value,color=Data.Source)) + 
+  ggplot(.,aes(x=UAA,y=Slope,color=Data.Source)) + 
+  geom_point(size=1) + 
+  stat_smooth(method='loess',span=0.4,se=F) + 
+  geom_vline(data=sa.unmine.new.breaks,aes(xintercept=value,color=Data.Source)) + 
+  facet_grid(Type~Site,scales='free_y') + 
+  scale_color_manual(name='Data Source',values=c('Orange3','Purple4')) + 
   theme(legend.position='top',legend.direction='horizontal') + 
-    ylab('Slope (m/m)') +
+  ylab('Slope (m/m)') +
   xlab(expression(paste('Area (',m^2,')'))) + 
-    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
-              labels = trans_format("log10", math_format(10^.x))) 
+  scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) + 
+  scale_y_log10(limits=c(0.01,1),breaks=c(0.01,0.1,1))
+
+
+pdf(file='Figures2018/SA.All.pdf',width=10,height=6)
+
+ggarrange(mined.sa,unmined.sa,ncol=1,nrow=2,heights=c(1,1.1),legend='top')
+
 dev.off()
+
+
 ```
 
 
-##Breaks on rasters
+## SA Breaks on rasters
 ```{r}
 library(plot3D)
 library(doMC)
 names(all.list)[2] <- 'WhiteOakRef'
 registerDoMC(5)
-i=1
+
 foreach(i=1:length(all.list)) %dopar% {
   library(raster)
   library(tidyverse)
@@ -685,108 +678,8 @@ dev.off()
 
 
 
-## Individual UAA plots
-```{r, eval=F}
-#plot with mined sites only 
-pdf(file='Figures2018/UAA.Slope.Mined.pdf',width=10,height=4)
-aa.g <- uaa %>% 
-  filter(Type == 'Mined') %>%
-  ggplot(aes(x=UAA,y=Slope,color=Data.Source)) + 
-  stat_smooth(se=F,method='loess',size=.6,span=.5) + 
-  geom_point(shape=1) + 
-  scale_y_log10(breaks=c(0.01,0.1,1),
-                labels=c(0.01,0.1,1),
-                limits=c(0.01,1)) + 
-  facet_wrap(~Site,ncol=5) + 
-  scale_color_manual(values=c('Red','Blue'),name='Data Source') +
-  geom_vline(data=sa.mine.breaks,aes(xintercept=value,color=Data.Source)) + 
-  theme(legend.position='top',legend.direction = 'horizontal')
 
-
-
-aa.g + 
-    ylab('Slope (m/m)') +
-  xlab(expression(paste('Area (',m^2,')'))) + 
-    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
-              labels = trans_format("log10", math_format(10^.x))) 
-
-dev.off()
-
-pdf(file='Figures2018/UAA.Slope.UnMined.pdf',width=10,height=4)
-aa.ug <- uaa %>% 
-  filter(Type != 'Mined') %>%
-  ggplot(aes(x=UAA,y=Slope,color=Data.Source)) + 
-  stat_smooth(se=F,method='loess',size=.6,span=.5) + 
-  geom_point(shape=1) + 
-  scale_y_log10(breaks=c(0.01,0.1,1),
-                labels=c(0.01,0.1,1),
-                limits=c(0.01,1)) + 
-  facet_wrap(~Site,ncol=5) + 
-  scale_color_manual(values=c('Orange3','Purple4'),name='Data Source') +
-  geom_vline(data=sa.unmine.breaks,aes(xintercept=value,color=Data.Source)) + 
-  theme(legend.position='top',legend.direction = 'horizontal')
-
-
-
-aa.ug + 
-    ylab('Slope (m/m)') +
-  xlab(expression(paste('Area (',m^2,')'))) + 
-    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
-              labels = trans_format("log10", math_format(10^.x))) 
-
-dev.off()
-
-
-pdf(file='Figures2018/UAA.Slope.Derv.Mined.pdf',width=10,height=4)
-
-aa.derv.g <- uaa.dif %>% 
-  filter(Type == 'Mined') %>%
-  ggplot(aes(x=UAA,y=derv,color=Data.Source)) + 
-  geom_point(shape=1) + 
-  # #scale_y_continuous(breaks=c(-.0002,0,0.0002),
-  #               labels=c(-.0002,0,0.0002),
-  #               limits=c(-.0002,0.0002)) + 
-  facet_wrap(~Site,ncol=5) + 
-  theme(legend.position = 'top',legend.direction='horizontal') + 
-  scale_color_manual(values=c('Red','Blue')) + 
-  geom_vline(data=sa.mine.breaks,aes(xintercept=value,color=Data.Source))
-
-aa.derv.g + 
-    ylab('UAA/Slope Derivative') +
-  xlab(expression(paste('Area (',m^2,')'))) + 
-    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
-              labels = trans_format("log10", math_format(10^.x))) 
-
-dev.off()
-
-
-pdf(file='Figures2018/UAA.Slope.Derv.UnMined.pdf',width=10,height=4)
-
-aa.u.derv.g <- uaa.dif %>% 
-  filter(Type != 'Mined') %>%
-  ggplot(aes(x=UAA,y=derv,color=Data.Source)) + 
-  geom_point(shape=1) + 
-  # #scale_y_continuous(breaks=c(-.0002,0,0.0002),
-  #               labels=c(-.0002,0,0.0002),
-  #               limits=c(-.0002,0.0002)) + 
-  facet_wrap(~Site,ncol=5) + 
-  theme(legend.position = 'top',legend.direction='horizontal') + 
-  scale_color_manual(values=c('Orange3','Purple4')) + 
-  geom_vline(data=sa.unmine.breaks,aes(xintercept=value,color=Data.Source))
-
-aa.u.derv.g + 
-    ylab('UAA/Slope Derivative') +
-  xlab(expression(paste('Area (',m^2,')'))) + 
-    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
-              labels = trans_format("log10", math_format(10^.x))) 
-
-dev.off()
-
-
-```
-
-
-#CAD
+# CAD
 
 
 ```{r}
@@ -1094,6 +987,30 @@ dev.off()
 ```
 
 
+
+## Energy Index
+
+
+```{r}
+
+pdf(file='Figures2018/EI.UAA.pdf',width=10,height=5)
+uaa %>%
+  ungroup(.) %>%
+  mutate(Site=gsub('Ref','',Site)) %>%
+  mutate(EI = Slope*UAA) %>%
+  ggplot(aes(x=UAA,y=EI,color=Data.Source)) + 
+  geom_point() + 
+  facet_grid(Type ~ Site) + 
+  scale_colour_few() +
+  ylab('Energy Index (m2)') + 
+  theme(legend.position='top',legend.direction = 'horizontal') + 
+  scale_y_log10() + 
+  xlab(expression(paste('Area (',m^2,')'))) + 
+    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) 
+dev.off()
+
+```
 
 
 
