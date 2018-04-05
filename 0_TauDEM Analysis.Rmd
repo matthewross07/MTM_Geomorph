@@ -162,7 +162,7 @@ gdal_polygonizeR <- function(x, outshape=NULL, gdalformat = 'ESRI Shapefile',
                              pypath=NULL, readpoly=TRUE, quiet=TRUE) {
   if (isTRUE(readpoly)) require(rgdal)
   if (is.null(pypath)) {
-    pypath <- Sys.which('/Library/Frameworks/GDAL.framework/Versions/2.1/Programs/gdal_polygonize.py')
+    pypath <- Sys.which('gdal_polygonize.py')
   }
   if (!file.exists(pypath)) stop("Can't find gdal_polygonize.py on your system.")
   owd <- getwd()
@@ -192,7 +192,7 @@ gdal_polygonizeR <- function(x, outshape=NULL, gdalformat = 'ESRI Shapefile',
   return(NULL)
 }
 
-sn.new.inf <- raster('new1000.tif')
+sn.new.inf <- raster('data/out/new1000.tif')
 old.outlines <- readOGR('data/in/shapefile','FinalWshed_All_Whole') %>% spTransform(.,projection(sn.new.inf))
 
 sn.1000 <- crop(sn.new.inf,extent(old.outlines))
@@ -239,11 +239,13 @@ oldsheds<- raster(uaa.paths[3]) %>% crop(.,extent(400000,470000,4150000,4230000)
 #Set all values to 1
 sheds[sheds > 0] <- 1
 
+
+
 #Turn these into shapefiles
 shd.shp <- gdal_polygonizeR(sheds)
 
 #Buffer out by 500m to include any ridge changes and reproject to outlet projeciton
-shd.shp.buf <- gBuffer(shd.shp,width=400) %>%
+shd.shp.buf <- gBuffer(shd.shp,width=100) %>%
   spTransform(.,projection(outs)) %>%
   disaggregate(.) %>%
   SpatialPolygonsDataFrame(.,data=data.frame(id=1:10))
@@ -259,7 +261,7 @@ shd.names <- over(shd.shp.buf,outs)
 shd.shp.names <- spCbind(shd.shp.buf,shd.names)
 
 
-
+#save(shd.shp.names,file='data/out/watersheds.RData')
 
 #Setup storage lists
 uaa.stack <- list()

@@ -62,7 +62,7 @@ load('data/out/Long.DF.RData')
 ```
 
 
-## Convert data to long format
+### Convert data to long format
 
 In the following code chunk I load in the data convert it into long data and 
 make sensible column names. I then save this file so I don't have to perform 
@@ -108,6 +108,54 @@ dat.check <- long.df %>%
 
 #save(long.df,file='data/out/Long.DF.RData')
 
+
+```
+
+
+## Figure 3. Study Map
+
+```{r}
+library(sf)
+library(ggthemes)
+st_envelope = function(x) st_as_sfc(st_bbox(x))
+
+load('data/out/watersheds.RData')
+
+
+watersheds <- st_as_sf(shd.shp.names,crs=26917) %>%
+  mutate(Site = c('White Oak','White Oak','Laurel', 'Laurel','Spruce','Spruce','Mud','Ben','Mud','Ben'),
+         Type=c('Mined','Reference','Reference','Mined','Reference','Mined','Reference','Reference','Mined','Mined'))
+
+boundary <- st_envelope(st_buffer(watersheds,1000))
+
+
+#No idea why the extent object wouldn't work. 
+e2010 <- raster('data/in/TauNew.tif') %>%
+  crop(.,extent(414446,459186,4155384,4218224))
+
+eobj <- rasterToPoints(e2010) %>%
+  as_tibble() %>%
+  sample_frac(0.01)
+
+
+#Weird rule where fill =T makes this possible to convert to a sf object. 
+wv <- maps::map('state',region=c('west virginia'),fill=T,plot=F) %>%
+  st_as_sf() %>%
+  st_transform(.,26917)
+
+
+
+wv.sub <- wv %>% st_intersection(.,st_envelope(boundary))
+
+
+
+ggplot() + 
+  geom_tile(data=eobj,aes(x=x,y=y,fill=TauNew))
+    geom_sf(data=wv.sub,fill='gray') 
+  theme_few(base_size=16) + 
+  theme(panel.grid.major = element_line(color='transparent')) +
+  geom_sf(data=watersheds,aes(fill=Type),fill=NA,size=1) 
+  scale_fill_manual(values=c('Red','Orange3'),name='')
 
 ```
 
