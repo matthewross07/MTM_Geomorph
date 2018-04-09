@@ -37,7 +37,7 @@ library(knitr)
 library(kableExtra)
 library(tidyr)
 library(ggpubr)
-
+library(plot3D)
 #Set ggplot2 theme
 matt_theme <- theme_set(theme_bw())
 matt_theme<- theme_update(axis.line = element_line(colour = "black"),
@@ -48,6 +48,26 @@ matt_theme<- theme_update(axis.line = element_line(colour = "black"),
                           plot.margin=unit(c(6,20,6,2),'pt')
 )
 
+makeTransparent = function(..., alpha=0.5) {
+
+  if(alpha<0 | alpha>1) stop("alpha must be between 0 and 1")
+
+  alpha = floor(255*alpha)  
+  newColor = col2rgb(col=unlist(list(...)), alpha=FALSE)
+
+  .makeTransparent = function(col, alpha) {
+    rgb(red=col[1], green=col[2], blue=col[3], alpha=alpha, maxColorValue=255)
+  }
+
+  newColor = apply(newColor, 2, .makeTransparent, alpha=alpha)
+
+  return(newColor)
+
+}
+
+reds <- makeTransparent('red4',alpha=.2)
+reds1 <- makeTransparent('red4',alpha=.7)
+reds2 <- makeTransparent('red4',alpha=.5)
 
 
 #Loads stack.df a wide data frame with all rasters for 5 sites
@@ -117,6 +137,8 @@ dat.check <- long.df %>%
 ```{r}
 library(sf)
 library(ggthemes)
+library(ggpubr)
+library(grid)
 st_envelope = function(x) st_as_sfc(st_bbox(x))
 
 load('data/out/watersheds.RData')
@@ -124,18 +146,24 @@ load('data/out/watersheds.RData')
 
 watersheds <- st_as_sf(shd.shp.names,crs=26917) %>%
   mutate(Site = c('White Oak','White Oak','Laurel', 'Laurel','Spruce','Spruce','Mud','Ben','Mud','Ben'),
-         Type=c('Mined','Reference','Reference','Mined','Reference','Mined','Reference','Reference','Mined','Mined'))
+         Type=c('Mined','Reference','Reference','Mined','Reference','Mined','Reference','Reference','Mined','Mined')) %>%
+  mutate(CENTROID = map(geometry, st_centroid),
+    COORDS = map(CENTROID, st_coordinates),
+    COORDS_X = map_dbl(COORDS, 1),
+    COORDS_Y = map_dbl(COORDS, 2))
 
-boundary <- st_envelope(st_buffer(watersheds,1000))
+boundary <- st_envelope(st_buffer(watersheds,10000))
 
-
+extent(watersheds)
+boundary
 #No idea why the extent object wouldn't work. 
 e2010 <- raster('data/in/TauNew.tif') %>%
-  crop(.,extent(414446,459186,4155384,4218224))
+  crop(.,extent(411446,460186,4154384,4221224)) %>%
+  aggregate(.,10)
+  
 
 eobj <- rasterToPoints(e2010) %>%
-  as_tibble() %>%
-  sample_frac(0.01)
+  as_tibble() 
 
 
 #Weird rule where fill =T makes this possible to convert to a sf object. 
@@ -147,16 +175,38 @@ wv <- maps::map('state',region=c('west virginia'),fill=T,plot=F) %>%
 
 wv.sub <- wv %>% st_intersection(.,st_envelope(boundary))
 
-
-
-ggplot() + 
-  geom_tile(data=eobj,aes(x=x,y=y,fill=TauNew))
-    geom_sf(data=wv.sub,fill='gray') 
-  theme_few(base_size=16) + 
+wv.inset <- ggplot() + 
+  geom_sf(data=wv) + 
   theme(panel.grid.major = element_line(color='transparent')) +
-  geom_sf(data=watersheds,aes(fill=Type),fill=NA,size=1) 
-  scale_fill_manual(values=c('Red','Orange3'),name='')
+  geom_sf(data=wv.sub,color='red',fill=NA,size=2) + 
+   theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        panel.border=element_blank())
 
+wv.inset
+wv.dem <- ggplot() + 
+  geom_tile(data=eobj,aes(x=x,y=y,fill=TauNew)) + 
+  theme_few(base_size=14) + 
+  theme(panel.grid.major = element_line(color='transparent')) +
+  geom_sf(data=watersheds,aes(color=Type),fill=NA,size=1) +
+  scale_color_manual(values=c('blue','purple4'),name='',guide=F) +
+  scale_fill_gradient2(high='blue2',low='red2',mid='gray70',midpoint=600,name='Elev. (m)')+
+  xlab('') + 
+  ylab('') +
+  theme(legend.position=c(0.85,0.49)) +
+  geom_text(data=watersheds %>%
+              filter(Type=='Reference'),aes(x=COORDS_X,y=COORDS_Y,label=Site),nudge_x=3500, nudge_y=3000,size=4.5)
+getwd()
+
+png(filename='Figures2018/fig3_studymap.png',width=5.9,height=6.3,units='in',res=300)
+vp <- viewport(width=0.35,height=0.45,x=0.72,y=0.26)
+print(wv.dem)
+print(wv.inset,vp=vp)
+dev.off()
 ```
 
 
@@ -717,7 +767,7 @@ cad <- long.df %>%
   #Sites less than 6km2 get smaller cut break
   select(Site,Type,Data,Data.Source,value,index) %>%
   spread(key=Data,value) %>%
-  mutate(area.m2 = round(UAA*10,1)) %>%
+  mutate(area.m2 = round(UAA*10,2)) %>%
   group_by(Site,Data.Source) %>%
   mutate(area.bins = cut(area.m2,breaks=unique(area.m2)))%>%
   ungroup() %>%
@@ -777,9 +827,10 @@ incisioncad <- cad %>%
   mutate(breaks=c('b2')) %>%
   dplyr::select(Site,Type,Data.Source,breaks,value=UAA)
 
+
 stemcad <- cad %>%
   left_join(incisioncad,by=c('Site','Type','Data.Source')) %>%
-  filter(UAA > value+50000 & Cume_Freq > 0.01) %>%
+  filter(UAA > 10^5.3) %>%
   mutate(index=1:n()) %>%
   nest() %>%
   mutate(incise=purrr::map(data,mycad.breaks)) %>%
@@ -787,6 +838,7 @@ stemcad <- cad %>%
   group_by(Data.Source,Site,Type) %>%
   mutate(breaks=c('b3')) %>%
   dplyr::select(Site,Type,Data.Source,breaks,value=UAA)
+
 
 cad.breaks <- bind_rows(diffusecad,incisioncad,stemcad) %>%
   ungroup() %>%
@@ -809,7 +861,7 @@ ggplot(.,aes(x=UAA,y=Cume_Freq,color=interaction(Data.Source,Type),size=Data.Sou
   xlab(expression(paste('Upslope Accumulated Area (',m^2,')'))) 
 
 
-pdf(file='Figures2018/CAD.All.pdf',width=10,height=6)
+png(filename='Figures2018/Fig5_CAD.All2decimals.png',width=10,height=6,units='in',res=300)
 cad.g
 
 dev.off()
@@ -834,224 +886,262 @@ dev.off()
 
 
 
-## Cad Derv
+# Energy Index
+
+## Figure 6 EI Plots
+
+```{r}
+ei <- long.df %>%
+  dplyr::filter(fdr.type=='f.inf') %>%
+  dplyr::filter(Data!='Elev') %>%
+  #Sites less than 6km2 get smaller cut break
+  select(Site,Type,Data,Data.Source,value,index) %>%
+  spread(key=Data,value) %>%
+  mutate(area.m2 = round(UAA*10,1)) %>%
+  mutate(ei=round(Slope*area.m2,1)) %>%
+  group_by(Site,Data.Source) %>%
+  mutate(ei.bins = cut(ei,breaks=unique(ei)))%>%
+  group_by(Site,Type,Data.Source,ei.bins) %>%
+  dplyr::summarize(UAA=mean(area.m2,na.rm=T),
+                   UAA.sd = sd(area.m2,na.rm=T),
+                   ei=round(mean(ei,na.rm=T),1)) %>%
+  group_by(Site,Type,Data.Source,ei) %>%
+  summarise(Freq=n()) %>%
+  arrange(Site,Type,Data.Source,desc(ei)) %>%
+  mutate(Cume_Freq=(cumsum(Freq)/sum(Freq))) %>%
+  mutate(revei=rev(ei))
+
+ei.g <- ei %>% 
+  filter(ei > 0.01) %>%
+  ungroup() %>%
+  mutate(Site = gsub('Ref','',Site)) %>%
+ggplot(.,aes(x=ei,y=Cume_Freq,color=interaction(Data.Source,Type),size=Data.Source)) + 
+  geom_point(shape=1) + 
+  scale_size_manual(name='',guide=F,values=c(1.2,0.4)) +
+  scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x)))  + scale_y_log10(limits=c(0.0005,1),breaks=c(0.001,0.01,0.1,1)) + 
+  facet_grid(Type~Site) + 
+  theme(legend.position = 'top',legend.direction = 'horizontal') +
+  scale_color_manual(name='Data Source',values=c('red','blue','orange3','purple4')) +
+  ylab('EI (EI>EI*)') + 
+  xlab(expression(paste('Energy Index (S*A)')))
+
+ei.g
+
+png(filename='Figures2018/Fig_6_EI.Cume.png',width=10,height=6,units='in',res=300)
+ei.g
+dev.off()
+
+```
+
+
+
+# 3D plots
+
 ```{r}
 
-cadloess <- function(data){
-  mod <- loess(log10(Cume_Freq) ~ log10(UAA),span=0.1,data=data)
+spruce <- all.list[[6]]
+
+
+newdem <- spruce[[1]]
+olddem <- spruce[[4]]
+newfac <- spruce[[9]]
+oldfac <- spruce[[10]]
+newslp <- spruce[[5]]
+oldslp <- spruce[[6]]
+newei <- newfac*newslp
+oldei <- oldfac*oldslp
+
+
+#Convert rasters to matrices
+old.s <- as.matrix(oldslp)
+new.s <- as.matrix(newslp)
+old.ei <- log10(as.matrix(oldei))
+new.ei <- log10(as.matrix(newei))
+old.ei[old.ei==-Inf] <- -1
+new.ei[new.ei==-Inf] <- -1
+
+
+old.m.na <- as.matrix(olddem)
+new.m.na <- as.matrix(newdem)
+olddem[is.na(olddem)] <- minValue(olddem)-1
+newdem[is.na(newdem)] <- minValue(newdem)-1
+old.m <- as.matrix(olddem)
+new.m <- as.matrix(newdem)
+old.f.m <- log10(as.matrix(oldfac))
+old.f.m[old.f.m==-Inf] <- 1
+new.f.m <- log10(as.matrix(newfac))
+new.f.m[new.f.m==-Inf] <- 1
+x <- 1:nrow(old.m)*10
+y <- 1:ncol(old.m)*10
+#Get zlim values
+lim <- function(x,y){
+    max1 <- maxValue(x)
+    min1 <- minValue(x)
+    max2 <- maxValue(y)
+    min2 <- minValue(y)
+    zlims <-c(floor(min(c(min1,min2))),ceiling(max(c(max1,max2))))
+    return(zlims)
 }
-
-
-
-cad.nest <- cad %>% 
-  group_by(Site,Type,Data.Source) %>%
-  nest() %>%
-  mutate(mods=purrr::map(data,cadloess)) 
-
-
-
-
-cad.seam <- cad.nest %>%
-  mutate(newdata=full.uaa) %>%
-  unnest(newdata) %>%
-  rename(UAA=newdata) %>%
-  group_by(Site,Type,Data.Source) %>%
-  nest() %>%
-  rename(newdata=data) %>%
-  full_join(cad.nest,by=c('Site','Type','Data.Source')) %>%
-  mutate(pred=map2(mods,newdata,predict)) %>%
-  unnest(newdata,pred) %>%
-  mutate(pred=10^pred) %>%
-  na.omit(.)
-
-cad.dif <- cad.seam %>%
-  group_by(Site,Type,Data.Source) %>%
-  arrange(UAA) %>%
-  mutate(derv=c(NA,diff(log10(pred))/(diff(log10(UAA))))) %>%
-  mutate(derv2=c(NA,diff(derv)/diff(log10(UAA)))) %>%
-  ungroup()
-
-
-ggplot(cad.dif,aes(x=UAA,y=derv,color=Data.Source)) + 
-  geom_point(shape=1)+
-  facet_wrap(~Site,ncol=5) + 
-  scale_x_log10() + 
-  geom_vline(data=hillcad,aes(xintercept=UAA,color=Data.Source))
-
-```
-
-
-
-
-## Cad Break IDs
-```{r}
-## At this time cad breaks are a little more concfusing for me. But there are two clear regions of sharp change, maybe three.
-
-#Break 1 is the region in the Cad plot where the Cumulative Frequency starts a much steeper incline. This is shown as the minimum in the derivative. 
-cad.b1 <- cad.dif %>%
-  group_by(Site,Data.Source,Type) %>%
-  filter(derv2 == min(derv2,na.rm=T)) %>%
-  mutate(breaks='b1') %>%
-  select(Site,Type,Data.Source,value=UAA,breaks) 
   
-
-#The second break is a little harder to identify but it is essentially the second break point when the cume frequency returns to a flatter decline. This si shown by a local maxima in the deriviative. #So if we use the second deriviative to identify this maxima it is the closest point to zero when the second derivative is decreasing. It firsts hits zero when it reaches the minima used ti identify b1. B2 then is th enext time it crosses zero. For all site this is before UAA is greater than 10^5, as identified by visual inspection
-
-cad.b2 <- cad.dif %>%
-  group_by(Site,Data.Source,Type) %>%
-  left_join(cad.b1,by=c('Site','Data.Source','Type')) %>%
-  filter(UAA > value & UAA < 10^5)%>% 
-  filter(derv==max(derv,na.rm=T)) %>%
-  mutate(breaks='b2') %>%
-  select(Site,Type,Data.Source,value=UAA,breaks) 
+png(filename='Figures2018/3D_4_indices.png',width=12,height=10,units='in',res=300)
+#Verbose code to get exactly the plot I want. 
+cols <-colorRampPalette(c('forestgreen','brown2'))
+bord <- rgb(0,0,0,0)
 
 
-# The thirdd break is where it steepens again which is shown by another local minima. Basically the minimum beyond the second break. 
-cad.b3 <- cad.dif %>%
-  group_by(Site,Data.Source,Type) %>%
-  left_join(cad.b2,by=c('Site','Data.Source','Type')) %>%
-  filter(UAA > value) %>%
-  filter(derv==min(derv)) %>%
-  mutate(breaks='b3') %>%
-  select(Site,Type,Data.Source,value=UAA,breaks) 
 
-cad.b3
+par(mar=c(0,0,0,0),mgp=c(1.8,0.5,0),cex=1.5,cex.lab=1.5,cex.axis=1.3)
 
-cad.breaks <- bind_rows(cad.b1,cad.b2)
-cad.mine.breaks <- cad.breaks %>%
-  filter(Type=='Mined')
+mx <- matrix(c(1,1,2,2,3,4,4,5,5,6,7,7,8,8,9,10,10,11,11,12),4,5,byrow=T)
+layout(mx)
 
-cad.unmine.breaks <- cad.breaks %>%
-  filter(Type!='Mined')
+#OldDEM
+l.dist <- -0.05
+theta <- -90.5
+phi <- 45
+shade=.65
+lphi=0
+ltheta=-135
+# par(mfrow=c(1,2))
+# hist(old.f.m,col='grey',ylim=c(0,6000),breaks=seq(0,7,by=.1))
+# hist(new.f.m,col='grey',ylim=c(0,6000),breaks=seq(0,7,by=.1))
+# 
+zlims <- lim(olddem,newdem)
 
+
+
+## Old DEM, Top Left
+persp3D(x=x, y=y,z=old.m,col=c('gray30'),lighting=T,colkey=list(plot=FALSE),theta=theta,phi=phi,
+        scale = FALSE, shade = 1,clab='Elev. (m)',axes=F,zlim=zlims,box=F,
+        ticktype='detailed',xlab='North (m)',ylab='East (m)',zlab='Elev (m)',inttype=2,expand=2)
+
+persp3D(x=x, y=y,z=old.m.na,col=c(bord,cols(200)),
+        colkey=list(side=4,line.clab=1,dist=l.dist,width=0.75,length=0.5,mgp=c(2,0.6,0)),
+        lighting=T,add=T,clim=zlims,zlim=zlims,box=F,
+        scale = FALSE, shade = 0.6,clab='Elev. (m)',expand=2,
+        inttype=2)
+
+
+#NewDEM, Top Middle
+persp3D(x=x, y=y,z=new.m,col=c('gray30'),lighting=T,colkey=list(plot=FALSE),theta=theta,phi=phi,
+        scale = FALSE, shade = 1,clab='Elev. (m)',axes=F,zlim=zlims,box=F,
+        ticktype='detailed',xlab='North (m)',ylab='East (m)',zlab='Elev (m)',inttype=2,expand=2)
+persp3D(x=x, y=y,z=new.m.na,col=c(bord,cols(200)),colkey=list(plot=F),
+        lighting=T,add=T,clim=zlims,zlim=zlims,box=F,
+        scale = FALSE, shade = 0.6,clab='Elev. (m)',expand=2,
+        inttype=2)
+
+
+#Elevation histogram, top right
+hist.mar <- c(3,0,0.5,2)
+par(mar=hist.mar)
+hist(old.m.na,breaks=seq(zlims[1],zlims[2],length.out=50),xlim=zlims,col='blue',ylim=c(0,4500),xlab='Elevation (m)',ylab='Frequency',main='')
+reds2 <- makeTransparent('red',alpha=.8)
+hist(new.m.na, breaks=seq(zlims[1],zlims[2],length.out=50),xlim=zlims,col=reds2,add=T,density=40)
+
+
+
+
+par(mar=c(0,0,0,0))
+#OldSlope
+
+slims <- c(0,2)
+scols <- colorRampPalette(c('yellow3','red','red4'))
+persp3D(x=x, y=y,z=old.m,col=c('gray30'),lighting=T,colkey=list(plot=FALSE),theta=theta,phi=phi,
+        scale = FALSE, shade = 1,clab='Elevation (m)',axes=F,zlim=zlims,box=F,
+        ticktype='detailed',xlab='North (m)',ylab='East (m)',zlab='Elev (m)',inttype=2,expand=2)
+persp3D(x=x, y=y,z=old.m.na,col=c(scols(200)),colvar = old.s,
+        colkey=list(side=4,line.clab=1,dist=l.dist,width=0.75,length=0.5,mgp=c(2,0.6,0)),
+        add=T,clim=slims,zlim=zlims,box=F,NAcol=bord,
+        scale = FALSE,clab='Slope (m/m)',expand=2,shade=shade,lphi=lphi,ltheta=ltheta,
+        inttype=2)
+
+#NewSlope
+persp3D(x=x, y=y,z=new.m,col=c('gray30'),lighting=T,colkey=list(plot=FALSE),theta=theta,phi=phi,
+            scale = FALSE, shade = 1,clab='Elevation (m)',axes=F,zlim=zlims,box=F,
+            ticktype='detailed',xlab='North (m)',ylab='East (m)',zlab='Elev (m)',inttype=2,expand=2)
+persp3D(x=x, y=y,z=new.m.na,col=c(scols(200)),colvar=new.s,NAcol=bord,
+        colkey=list(plot=F),add=T,zlim=zlims,box=F,shade=shade,lphi=lphi,ltheta=ltheta,
+        scale = FALSE,clab='Slope (m/m)',expand=2,inttype=2,clims=slims)
+
+
+par(mar=hist.mar)
+hist(old.s,breaks=seq(0,2.5,length.out=100),xlim=c(0,1.2),col='blue',ylim=c(0,5000),xlab='Slope (m/m)',ylab='Frequency',main='')
+hist(new.s, breaks=seq(0,2.5,length.out=100),xlim=c(0,1.2),col=reds2,add=T,density=40)
+
+
+
+
+#OldFAC
+par(mar=c(0,0,0,0))
+flims <- log10(lim(newfac,oldfac))
+cols.f <- colorRampPalette(c('lightblue','darkblue','purple4','mediumvioletred'))
+persp3D(x=x, y=y,z=old.m,col=c('gray30'),lighting=T,colkey=list(plot=FALSE),theta=theta,phi=phi,
+            scale = FALSE, shade = 1,clab='Elevation (m)',axes=F,zlim=zlims,box=F,
+            ticktype='detailed',xlab='North (m)',ylab='East (m)',zlab='Elev (m)',inttype=2,expand=2)
+persp3D(x=x, y=y,z=old.m.na,col=c('white',cols.f(50)),colvar=(old.f.m),
+        colkey=list(side=4,line.clab=1,dist=l.dist,width=0.75,length=0.5,mgp=c(2,0.6,0)),
+        add=T,zlim=zlims,box=F,shade=shade,lphi=lphi,ltheta=ltheta,
+        scale = FALSE,clab=expression(bold(paste('Log UAA (',m^2,')',sep=''))),expand=2,clims=flims,
+        inttype=2)
+
+
+
+#NewFAC
+persp3D(x=x, y=y,z=new.m,col=c('gray30'),lighting=T,colkey=list(plot=FALSE),theta=theta,phi=phi,
+            scale = FALSE, shade = 1,clab='Elevation (m)',axes=F,zlim=zlims,box=F,
+            ticktype='detailed',xlab='North (m)',ylab='East (m)',zlab='Elev (m)',inttype=2,expand=2)
+persp3D(x=x, y=y,z=new.m.na,col=c('white',cols.f(100)),colvar=new.f.m,
+        colkey=list(plot=F),add=T,zlim=zlims,box=F,
+        scale = FALSE,clab='',shade=shade,lphi=lphi,ltheta=ltheta,
+        expand=2,inttype=2,clims=flims)
+
+old.f <- 10^old.f.m
+
+par(mar=hist.mar)
+hist(old.f.m,breaks=seq(1,6,length.out=100),col='blue',ylim=c(0,6200),
+  xlab=expression(paste('UAA (',m^2,')',sep='')),ylab='Frequency',main='',xaxt='n')
+axis(1,at=c(1,2,3,4,5,6),labels=c(expression(10^1),expression(10^2),expression(10^3),expression(10^4),expression(10^5),expression(10^6)))
+hist(new.f.m, breaks=seq(1,6,length.out=100),xlim=c(1,6),col=reds2,add=T,density=40)
+legend(x=10^3,y=3000,pch=c(15,15),col=c('blue',reds2),legend=c('Pre-Mining','Post-Mining'),cex=1.5)
+
+#OldEI
+par(mar=c(0,0,0,0))
+ei.lims <- c(-2,5)
+ei.cols <- colorRampPalette(c('tan2','tan4','cyan','blue','green','green'))
+persp3D(x=x, y=y,z=old.m,col=c('gray30'),lighting=T,colkey=list(plot=FALSE),theta=theta,phi=phi,
+        scale = FALSE, shade = 1,clab='Elevation (m)',axes=F,zlim=zlims,box=F,
+        ticktype='detailed',xlab='North (m)',ylab='East (m)',zlab='Elev (m)',inttype=2,expand=2)
+persp3D(x=x, y=y,z=old.m.na,col=c(ei.cols(200)),colvar = old.ei,NAcols=bord,
+        colkey=list(side=4,line.clab=1,dist=l.dist,width=0.75,length=0.5,mgp=c(2,0.6,0)),
+        add=T,clim=ei.lims,zlim=zlims,box=F,NAcol=bord,shade=shade,lphi=lphi,ltheta=ltheta,
+        scale = FALSE,clab='Log EI',expand=2,
+        inttype=2)
+
+
+#NewEI
+#Shorten the color ramp 
+new.ei[new.ei < -2] <- -2
+
+persp3D(x=x, y=y,z=new.m,col=c('gray30'),lighting=T,colkey=list(plot=FALSE),theta=theta,phi=phi,
+            scale = FALSE, shade = 1,clab='Elevation (m)',axes=F,zlim=zlims,box=F,
+            ticktype='detailed',xlab='North (m)',ylab='East (m)',zlab='Elev (m)',inttype=2,expand=2)
+persp3D(x=x, y=y,z=new.m.na,col=c(ei.cols(200)),colvar=new.ei,NAcol=bord,
+        colkey=list(plot=F),add=T,zlim=zlims,box=F,shade=shade,lphi=lphi,ltheta=ltheta,
+        scale = FALSE,clab='Slope (m/m)',expand=2,inttype=2,clims=ei.lims)
+
+
+
+par(mar=hist.mar)
+hist(old.ei,breaks=seq(-2.1,6,length.out=100),col='blue',ylim=c(0,6100),
+  xlab='Energy Index',ylab='Frequency',main='',xaxt='n')
+axis(1,at=c(-1,1,3,5,7),labels=c(expression(10^-1),expression(10^1),expression(10^3),expression(10^5),expression(10^7)))
+hist(new.ei, breaks=seq(-2.1,6,length.out=100),xlim=c(0,7.1),col=reds2,add=T,density=40)
+#legend(x=3,y=5000,pch=c(15,15),col=c('gray20',reds2),legend=c('Pre-Mining','Post-Mining'))
+
+dev.off()
 ```
-
-##Cad individual plots
-
-```{r}
-#plot with mined sites only 
-pdf(file='Figures2018/CAD.Mined.pdf',width=10,height=4)
-cad.g <- cad %>% 
-  filter(Type == 'Mined') %>%
-  ggplot(aes(x=UAA,y=Cume_Freq,color=Data.Source)) + 
-  stat_smooth(se=F,method='loess',size=.6,span=.3)+ 
-  geom_point(shape=1)  + 
-  scale_y_log10() + 
-  facet_wrap(~Site,ncol=5) + 
-  scale_color_manual(values=c('Red','Blue'),name='Data Source') +
-  geom_vline(data=cad.mine.breaks,aes(xintercept=value,color=Data.Source)) + 
-  theme(legend.position='top',legend.direction = 'horizontal')
-
-
-
-cad.g + 
-    ylab('Freq') +
-  xlab(expression(paste('Area (',m^2,')'))) + 
-    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
-              labels = trans_format("log10", math_format(10^.x))) 
-
-dev.off()
-pdf(file='Figures2018/CAD.UnMined.pdf',width=10,height=4)
-cad.ug <- cad %>% 
-  filter(Type != 'Mined') %>%
-  ggplot(aes(x=UAA,y=Cume_Freq,color=Data.Source)) + 
-  stat_smooth(se=F,method='loess',size=.6,span=.3)+ 
-  geom_point(shape=1)  + 
-  scale_y_log10() + 
-  facet_wrap(~Site,ncol=5) + 
-  scale_color_manual(values=c('Orange3','Purple4'),name='Data Source') +
-  geom_vline(data=cad.unmine.breaks,aes(xintercept=value,color=Data.Source)) + 
-  theme(legend.position='top',legend.direction = 'horizontal')
-
-
-
-cad.ug + 
-    ylab('Freq') +
-  xlab(expression(paste('Area (',m^2,')'))) + 
-    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
-              labels = trans_format("log10", math_format(10^.x))) 
-
-dev.off()
-
-
-pdf(file='Figures2018/CadDerv.Mined.pdf',width=10,height=4)
-
-cad.derv.g <- cad.dif %>% 
-  filter(Type == 'Mined') %>%
-  ggplot(aes(x=UAA,y=derv,color=Data.Source)) + 
-  geom_point(shape=1) + 
-  # #scale_y_continuous(breaks=c(-.0002,0,0.0002),
-  #               labels=c(-.0002,0,0.0002),
-  #               limits=c(-.0002,0.0002)) + 
-  facet_wrap(~Site,ncol=5) + 
-  theme(legend.position = 'top',legend.direction='horizontal') + 
-  scale_color_manual(values=c('Red','Blue')) + 
-  geom_vline(data=cad.mine.breaks,aes(xintercept=value,color=Data.Source))
-
-
-
-cad.derv.g + 
-    ylab('CAD Derivative') +
-  xlab(expression(paste('Area (',m^2,')'))) + 
-    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
-              labels = trans_format("log10", math_format(10^.x))) 
-
-dev.off()
-
-pdf(file='Figures2018/CadDerv.UnMined.pdf',width=10,height=4)
-
-cad.derv.g <- cad.dif %>% 
-  filter(Type != 'Mined') %>%
-  ggplot(aes(x=UAA,y=derv,color=Data.Source)) + 
-  geom_point(shape=1) + 
-  # #scale_y_continuous(breaks=c(-.0002,0,0.0002),
-  #               labels=c(-.0002,0,0.0002),
-  #               limits=c(-.0002,0.0002)) + 
-  facet_wrap(~Site,ncol=5) + 
-  theme(legend.position = 'top',legend.direction='horizontal') + 
-  scale_color_manual(values=c('Orange3','Purple4')) + 
-  geom_vline(data=cad.unmine.breaks,aes(xintercept=value,color=Data.Source))
-
-
-
-cad.derv.g + 
-    ylab('CAD Derivative') +
-  xlab(expression(paste('Area (',m^2,')'))) + 
-    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
-              labels = trans_format("log10", math_format(10^.x))) 
-
-dev.off()
-
-
-
-```
-
-
-
-## Energy Index
-
-
-```{r}
-
-pdf(file='Figures2018/EI.UAA.pdf',width=10,height=5)
-uaa %>%
-  ungroup(.) %>%
-  mutate(Site=gsub('Ref','',Site)) %>%
-  mutate(EI = Slope*UAA) %>%
-  ggplot(aes(x=UAA,y=EI,color=Data.Source)) + 
-  geom_point() + 
-  facet_grid(Type ~ Site) + 
-  scale_colour_few() +
-  ylab('Energy Index (m2)') + 
-  theme(legend.position='top',legend.direction = 'horizontal') + 
-  scale_y_log10() + 
-  xlab(expression(paste('Area (',m^2,')'))) + 
-    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
-              labels = trans_format("log10", math_format(10^.x))) 
-dev.off()
-
-```
-
 
 
 #Supplement way too much detail
