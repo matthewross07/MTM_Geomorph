@@ -87,17 +87,6 @@ mpiexec -n 7 threshold -ssa data/out/olduaa8.tif -src data/out/old1008.tif -thre
 ```
 
 
-
-
-### Move outlets to streams, for some reason this is not working on my computer. 
-```{bash, eval=F}
-
-#New Infinity
-mpiexec -n 7 moveoutletstostrm -p newinffdr.tif -src new100inf.tif -o data/in/shapefile/approxnew.shp -om data/in/shapefile/snapinfnew.shp -md 30
-
-
-```
-
 ### Delineate watersheds
 
 ```{bash, eval=F}
@@ -111,108 +100,6 @@ mpiexec -n 7 areadinf -ang data/out/oldinffdr.tif -o data/in/shapefile/approxnew
 mpiexec -n 7 aread8 -p data/out/olddir8.tif -o data/in/shapefile/approxnew.shp -ad8 oldshed8.tif
 
 ```
-
-
-
-# R analysis
-
-## Project outlets with same projection as rasters
-```{r, eval=FALSE}
-
-library(raster)
-library(tidyverse)
-library(magrittr)
-library(rgdal)
-library(rgeos)
-library(shapefiles)
-library(maptools)
-library(leaflet)
-library(velox)
-library(foreach)
-library(snow)
-library(parallel)
-library(doParallel)
-library(Hmisc)
-
-
-#Match outlet projections to raster data
-outs <- readOGR('data/in/shapefile/SubSheds.kml','Sub Sheds',stringsAsFactors=F) %>% spTransform(.,CRS=CRS('+init=epsg:26917'))
-outs <- outs[,1]
-outs$Id <- 1:nrow(outs)
-outs <- outs[,2:1]
-plot(outs)
-
-
-#writeOGR(outs,'data/in/shapefile','approxnew',driver='ESRI Shapefile',overwrite_layer = T)
-
-
-
-
-```
-
-
-### Convert network into shapefile using code from [John Baumgartner](https://johnbaumgartner.wordpress.com/2012/07/26/getting-rasters-into-shape-from-r/) note that gdal and python-gdal must be installed (on linux machine)
-
-I used this network to hand select watershed outlets based on a separate layer of mining extent. I tried to capture watersheds that were > 90% mined. 
-
-```{r, eval=F}
-
-
-gdal_polygonizeR <- function(x, outshape=NULL, gdalformat = 'ESRI Shapefile',
-                             pypath=NULL, readpoly=TRUE, quiet=TRUE) {
-  if (isTRUE(readpoly)) require(rgdal)
-  if (is.null(pypath)) {
-    pypath <- Sys.which('gdal_polygonize.py')
-  }
-  if (!file.exists(pypath)) stop("Can't find gdal_polygonize.py on your system.")
-  owd <- getwd()
-  on.exit(setwd(owd))
-  setwd(dirname(pypath))
-  if (!is.null(outshape)) {
-    outshape <- sub('\\.shp$', '', outshape)
-    f.exists <- file.exists(paste(outshape, c('shp', 'shx', 'dbf'), sep='.'))
-    if (any(f.exists))
-      stop(sprintf('File already exists: %s',
-                   toString(paste(outshape, c('shp', 'shx', 'dbf'),
-                                  sep='.')[f.exists])), call.=FALSE)
-  } else outshape <- tempfile()
-  if (is(x, 'Raster')) {
-    require(raster)
-    writeRaster(x, {f <- tempfile(fileext='.tif')})
-    rastpath <- normalizePath(f)
-  } else if (is.character(x)) {
-    rastpath <- normalizePath(x)
-  } else stop('x must be a file path (character string), or a Raster object.')
-  system2('python', args=(sprintf('"%1$s" "%2$s" -f "%3$s" "%4$s.shp"',
-                                  pypath, rastpath, gdalformat, outshape)))
-  if (isTRUE(readpoly)) {
-    shp <- readOGR(dirname(outshape), layer = basename(outshape), verbose=!quiet)
-    return(shp)
-  }
-  return(NULL)
-}
-
-sn.new.inf <- raster('data/out/new1000.tif')
-old.outlines <- readOGR('data/in/shapefile','FinalWshed_All_Whole') %>% spTransform(.,projection(sn.new.inf))
-
-sn.1000 <- crop(sn.new.inf,extent(old.outlines))
-sn.1000[sn.1000 < 1] <- NA
-sn.1000.shp <- gdal_polygonizeR(sn.1000)
-sn.1000.clip <- sn.1000.shp[old.outlines,]
-sn.1000.clip <- gUnaryUnion(sn.1000.clip, id = sn.1000.clip$DN)
-sn.1000.clip$name <- 'data'
-# writeOGR(sn.1000.clip,'data/in/shapefile','sn.1000.clip',driver='ESRI Shapefile',overwrite_layer = T)
-
-old.inf <- raster('old100.tif')
-old.inf[old.inf<1] <- NA
-old.1000.shp <- gdal_polygonizeR(old.inf)
-old.100.clip <- old.1000.shp[old.outlines,]
-old.100.clip <- gUnaryUnion(old.100.clip,id=old.100.clip$DN)
-old.100.clip$name <- 'data'
-# writeOGR(old.100.clip,'data/in/shapefile','old.100.clip',driver='ESRI Shapefile')
-
-```
-
 
 
 

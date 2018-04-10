@@ -1,0 +1,28 @@
+---
+title: "TauDEM analysis"
+author: "Matthew Ross"
+date: "May 30, 2017"
+output:
+  html_document:
+    toc: true
+    theme: united
+editor_options: 
+  chunk_output_type: console
+---
+
+
+
+# Delineate watersheds using outputs from 0_taudem_prep and 1_taudem_outlet_id
+
+```{bash, eval=F}
+#New Infinity
+mpiexec -n 7 areadinf -ang data/out/newinffdr.tif -o data/in/shapefile/approxnew.shp -sca newshedinf.tif
+
+mpiexec -n 7 aread8 -p data/out/newdir8.tif -o data/in/shapefile/approxnew.shp -ad8 newshed8.tif
+
+mpiexec -n 7 areadinf -ang data/out/oldinffdr.tif -o data/in/shapefile/approxnew.shp -sca oldshedinf.tif
+
+mpiexec -n 7 aread8 -p data/out/olddir8.tif -o data/in/shapefile/approxnew.shp -ad8 oldshed8.tif
+
+```
+

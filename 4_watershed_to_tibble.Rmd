@@ -1,0 +1,54 @@
+---
+title: "TauDEM analysis"
+author: "Matthew Ross"
+date: "May 30, 2017"
+output:
+  html_document:
+    toc: true
+    theme: united
+editor_options: 
+  chunk_output_type: console
+---
+
+
+
+#  Convert raster data to data frames
+```{r}
+#Loads in all list which is a list of all sites
+load('data/out/ras.stack.ref.RData')
+
+library(doParallel) #to do parallel processing
+library(parallel) # to register parallel processing
+library(foreach) # to do parallel processing as a forloop
+#Evaluate on 7 cores
+cl <- makeCluster(3) #make a cluster with 3 cores
+registerDoParallel(cl,cores=3) #tell parallel processor to use 3 cores
+
+stack.list <- foreach(i=1:length(all.list)) %dopar% {
+  library(raster)
+  library(dplyr)
+  library(magrittr)
+  l <- extract(all.list[[i]]) %>% as.data.frame(.) %>%
+    mutate(Site = shd.names$Name[i]) 
+}
+endCluster()
+
+stack.df <- do.call('rbind',stack.list) 
+names(stack.df)[1:4] <- e.names
+
+  
+
+head(stack.df)
+#Name the rows of this wide data frame
+
+save(stack.df,file='data/out/UAA.E.Slope.Ref.RData')
+
+
+```
+
+
+
+
+
+
+
