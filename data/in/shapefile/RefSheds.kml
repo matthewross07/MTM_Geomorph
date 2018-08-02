@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2" xmlns:kml="http://www.opengis.net/kml/2.2" xmlns:atom="http://www.w3.org/2005/Atom">
+<Document>
+	<name>RefSheds.kml</name>
+	<Style id="s_ylw-pushpin">
+		<IconStyle>
+			<scale>1.1</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+			</Icon>
+			<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+		</IconStyle>
+	</Style>
+	<StyleMap id="m_ylw-pushpin">
+		<Pair>
+			<key>normal</key>
+			<styleUrl>#s_ylw-pushpin</styleUrl>
+		</Pair>
+		<Pair>
+			<key>highlight</key>
+			<styleUrl>#s_ylw-pushpin_hl</styleUrl>
+		</Pair>
+	</StyleMap>
+	<Style id="s_ylw-pushpin_hl">
+		<IconStyle>
+			<scale>1.3</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+			</Icon>
+			<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+		</IconStyle>
+	</Style>
+	<Folder>
+		<name>Ref Sub</name>
+		<open>1</open>
+		<Placemark>
+			<name>SpruceRef</name>
+			<LookAt>
+				<longitude>-81.82862971499814</longitude>
+				<latitude>37.85909249462842</latitude>
+				<altitude>0</altitude>
+				<heading>3.463090216518112</heading>
+				<tilt>30.00176310064293</tilt>
+				<range>392.543588078056</range>
+				<gx:altitudeMode>relativeToSeaFloor</gx:altitudeMode>
+			</LookAt>
+			<styleUrl>#m_ylw-pushpin</styleUrl>
+			<Point>
+				<gx:drawOrder>1</gx:drawOrder>
+				<coordinates>-81.82917727667004,37.85883287134421,0</coordinates>
+			</Point>
+		</Placemark>
+		<Placemark>
+			<name>LaurelRef</name>
+			<LookAt>
+				<gx:TimeStamp><when>2011-10-17</when>
+</gx:TimeStamp>
+				<gx:ViewerOptions>
+					<gx:option name="historicalimagery"></gx:option>
+					<gx:option enabled="0" name="sunlight"></gx:option>
+					<gx:option enabled="0" name="streetview"></gx:option>
+				</gx:ViewerOptions>
+				<longitude>-81.64306802480814</longitude>
+				<latitude>38.09297308299682</latitude>
+				<altitude>0</altitude>
+				<heading>3.567064966160896</heading>
+				<tilt>28.30700635198701</tilt>
+				<range>496.5142741906345</range>
+				<gx:altitudeMode>relativeToSeaFloor</gx:altitudeMode>
+			</LookAt>
+			<styleUrl>#m_ylw-pushpin</styleUrl>
+			<Point>
+				<gx:drawOrder>1</gx:drawOrder>
+				<coordinates>-81.64347167136981,38.09308722422332,0</coordinates>
+			</Point>
+		</Placemark>
+		<Placemark>
+			<name>MudRef</name>
+			<LookAt>
+				<longitude>-81.93770809004242</longitude>
+				<latitude>38.05636070003582</latitude>
+				<altitude>0</altitude>
+				<heading>3.385930680279577</heading>
+				<tilt>28.57634584672516</tilt>
+				<range>607.6760427708276</range>
+				<gx:altitudeMode>relativeToSeaFloor</gx:altitudeMode>
+			</LookAt>
+			<styleUrl>#m_ylw-pushpin</styleUrl>
+			<Point>
+				<gx:drawOrder>1</gx:drawOrder>
+				<coordinates>-81.93833189966973,38.05612562654974,0</coordinates>
+			</Point>
+		</Placemark>
+		<Placemark>
+			<name>WhiteRef</name>
+			<LookAt>
+				<gx:TimeStamp><when>2002-04-23</when>
+</gx:TimeStamp>
+				<gx:ViewerOptions>
+					<gx:option name="historicalimagery"></gx:option>
+					<gx:option enabled="0" name="sunlight"></gx:option>
+					<gx:option enabled="0" name="streetview"></gx:option>
+				</gx:ViewerOptions>
+				<longitude>-81.54009483741773</longitude>
+				<latitude>38.03233086691854</latitude>
+				<altitude>0</altitude>
+				<heading>3.615560704337829</heading>
+				<tilt>17.35933546801705</tilt>
+				<range>2074.011755179851</range>
+				<gx:altitudeMode>relativeToSeaFloor</gx:altitudeMode>
+			</LookAt>
+			<styleUrl>#m_ylw-pushpin</styleUrl>
+			<Point>
+				<gx:drawOrder>1</gx:drawOrder>
+				<coordinates>-81.54139733959865,38.03530645255884,0</coordinates>
+			</Point>
+		</Placemark>
+		<Placemark>
+			<name>BenRef</name>
+			<LookAt>
+				<longitude>-81.94124685289718</longitude>
+				<latitude>37.55882356124258</latitude>
+				<altitude>0</altitude>
+				<heading>3.39679035873159</heading>
+				<tilt>30.00145417297287</tilt>
+				<range>384.6289476391472</range>
+				<gx:altitudeMode>relativeToSeaFloor</gx:altitudeMode>
+			</LookAt>
+			<styleUrl>#m_ylw-pushpin</styleUrl>
+			<Point>
+				<gx:drawOrder>1</gx:drawOrder>
+				<coordinates>-81.94119569009329,37.5584019765338,0</coordinates>
+			</Point>
+		</Placemark>
+	</Folder>
+</Document>
+</kml>
