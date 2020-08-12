@@ -1,11 +1,9 @@
----
-title: "1_taudem_outlet_id"
-author: "Matthew Ross"
-date: "4/10/2018"
-output: html_document
----
 
-# R analysis
+# Identifying heavily mined watersheds
+
+The goal of othis project is to better understand how mining has 
+altered the geomorphology of these landscapes, so we want to work in landscapes
+that have been heavily mined. 
 
 ## Project outlets with same projection as rasters
 
@@ -32,9 +30,16 @@ library(Hmisc)
 
 
 
-### Convert network into shapefile using code from [John Baumgartner](https://johnbaumgartner.wordpress.com/2012/07/26/getting-rasters-into-shape-from-r/) note that gdal and python-gdal must be installed (on linux machine)
+### Convert river network into shapefile
 
-I used this network to hand select watershed outlets based on a separate layer of mining extent. I tried to capture watersheds that were > 90% mined. 
+Note: All of this is using gdal/sp/etc... I would recommend using `sf`, `s2` and 
+`terra` for future approaches. As stated at beginning this project was started
+in 2014!
+
+This using code from [John Baumgartner](https://johnbaumgartner.wordpress.com/2012/07/26/getting-rasters-into-shape-from-r/) note that gdal and python-gdal must be installed (on linux machine)
+
+I used this network to hand select watershed outlets based on a separate layer of mining extent.
+I tried to capture watersheds that were > 90% mined. 
 
 ```{r, eval=F}
 
@@ -95,18 +100,17 @@ old.100.clip$name <- 'data'
 ```
 
 
-# 
+### Reproject outlets to same projection as rasters
 
-```{r}
+```{r, eval = F}
 #Match outlet projections to raster data
 outs <- readOGR('data/in/shapefile/SubSheds.kml','Sub Sheds',stringsAsFactors=F) %>% spTransform(.,CRS=CRS('+init=epsg:26917'))
 outs <- outs[,1]
 outs$Id <- 1:nrow(outs)
 outs <- outs[,2:1]
-plot(outs)
 
 
-#writeOGR(outs,'data/in/shapefile','approxnew',driver='ESRI Shapefile',overwrite_layer = T)
+writeOGR(outs,'data/in/shapefile','approxnew',driver='ESRI Shapefile',overwrite_layer = T)
 
 
 

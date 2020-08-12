@@ -1,25 +1,39 @@
 ---
-title: "TauDEM analysis"
-author: "Matthew Ross"
-date: "May 30, 2017"
+title: "Methods for: Identifying geomorphic process domains in synthetic landscapes of West Virginia, USA"
+author:
+- "Dr. Matthew Ross and Dr. Kristin Jaeger"
+- 'matt.ross(at)colostate.edu'
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+site: bookdown::bookdown_site
+documentclass: book
 output:
-  html_document:
-    toc: true
-    theme: united
-editor_options: 
-  chunk_output_type: console
+  bookdown::gitbook: default
+  #bookdown::pdf_book: default
+# bibliography: 'citations.bib'
 ---
 
 
 
-# TauDEM
+# Terrain analyses using TauDEM
 
 This is a script that does terrain analyses using the [TauDEM tool](http://hydrology.usu.edu/taudem/taudem5/index.html) from David Tarboton at Utah State. All scripts below should be run in bash or terminal after installing TauDEM. R Code is mixed throughout to generate a final data table for analysis. 
 
 Some R code is at the bottom of the script to project outlets and subset rasters. 
 
+Some notes: This project evolved over the 5+ years we worked on it, and while 
+I've tried to update the code to reflect my current approach, this often was too 
+time-consuming or not worth it. As of posting this, all code works, assuming
+you have TauDEM installed and working. Back when this was done I was pretty
+bad at file tracking (still lots to learn),
+so lots and lots of code chunks are set to `eval = FALSE`
+to avoid rerunning time. 
+
+Finally, I would probably do this in whitebox now since it runs with calls
+inside of R, though I found TauDEM reliable and reproducible and easy to learn.
 
 ## Pit remove
+
+TauDEM has robust documentation
 ```{bash, eval=F}
 mpiexec -n 8 pitremove -z data/in/TauNew.tif -fel data/out/newfel.tif
 
@@ -56,6 +70,7 @@ mpiexec -n 8 dinfflowdir -ang data/out/oldinffdr.tif -slp data/out/oldinfslp.tif
 ```
 
 ### Flow accumulation
+
 ```{bash, eval=F}
 mpiexec -n 7 areadinf -ang data/out/newinffdr.tif -sca data/out/newinfuaa.tif
 
@@ -64,11 +79,11 @@ mpiexec -n 7 areadinf -ang data/out/oldinffdr.tif -sca data/out/oldinfuaa.tif
 ```
 
 
-##  UAA analysis
+##  Stream detection
 
 ### Threshold 1000 pixels = 0.1 km2
 
-```{bash}
+```{bash, eval = F}
 
 #New infinity
 mpiexec -n 7 threshold -ssa data/out/newinfuaa.tif -src data/out/new100inf.tif -thresh 100
@@ -87,143 +102,7 @@ mpiexec -n 7 threshold -ssa data/out/olduaa8.tif -src data/out/old1008.tif -thre
 ```
 
 
-### Delineate watersheds
 
-```{bash, eval=F}
-#New Infinity
-mpiexec -n 7 areadinf -ang data/out/newinffdr.tif -o data/in/shapefile/approxnew.shp -sca newshedinf.tif
-
-mpiexec -n 7 aread8 -p data/out/newdir8.tif -o data/in/shapefile/approxnew.shp -ad8 newshed8.tif
-
-mpiexec -n 7 areadinf -ang data/out/oldinffdr.tif -o data/in/shapefile/approxnew.shp -sca oldshedinf.tif
-
-mpiexec -n 7 aread8 -p data/out/olddir8.tif -o data/in/shapefile/approxnew.shp -ad8 oldshed8.tif
-
-```
-
-
-
-##  Stack and cutup rasters to smaller extents for later analysis in r. 
-
-```{r, eval=F}
-#Using a new faster raster library called Velox
-
-
-#Setup readin paths and crop extents and name order and empty lists
-#Upslop accumulated area data
-uaa.paths <- paste0('data/out/',c('newshedinf.tif', 'oldshedinf.tif','newshed8.tif','oldshed8.tif'))
-#Slope data. 
-slope.paths <- paste0('data/out/',c('newinfslp.tif','oldinfslp.tif','newsd8.tif','oldsd8.tif'))
-#Elevation data. 
-e.paths <- paste0('data/in/',c('TauNew.tif','TauNew.tif','TauOldElev.tif','TauOldElev.tif')
-#Names for where elevation profiles come from (matched with current shed boundaries or not? New.e.new means New elevatio profiles with new shed boundaries. New.e.old means new elevation with old shed boundaries)
-e.names <- c('New.e.new','New.e.old','Old.e.new','Old.e.old')
-#Read in raster outlines
-sheds <- raster(uaa.paths[1]) %>% crop(.,extent(400000,470000,4150000,4230000))
-oldsheds<- raster(uaa.paths[3]) %>% crop(.,extent(400000,470000,4150000,4230000))
-
-
-#Set all values to 1
-sheds[sheds > 0] <- 1
-
-
-
-#Turn these into shapefiles
-shd.shp <- gdal_polygonizeR(sheds)
-
-#Buffer out by 500m to include any ridge changes and reproject to outlet projeciton
-shd.shp.buf <- gBuffer(shd.shp,width=100) %>%
-  spTransform(.,projection(outs)) %>%
-  disaggregate(.) %>%
-  SpatialPolygonsDataFrame(.,data=data.frame(id=1:10))
-
-
-##Plot shd.shp.buf to see if the buffered area includes old watersheds
-# plot(shd.shp.buf)
-# plot(oldsheds,col='black',add=T)
-
-
-#Join these shapefiles to the outlets to get the names (ref or not ref)
-shd.names <- over(shd.shp.buf,outs)
-shd.shp.names <- spCbind(shd.shp.buf,shd.names)
-
-
-#save(shd.shp.names,file='data/out/watersheds.RData')
-
-#Setup storage lists
-uaa.stack <- list()
-slope.stack <- list()
-e.stack <- list()
-esu.stacked <- list()
-#Evaluate on 7 cores 
-cl <- makeCluster(3)
-registerDoParallel(cl,cores=3)
-all.list <- foreach(i = 1:nrow(shd.names)) %dopar% {
-  library(raster)
-  library(rgdal)
-  library(magrittr)
-  #Read in each Watershed outline to trim data
-  shape <- shd.shp.names[shd.shp.names$Name == shd.names$Name[i],]
-  for(j in 1:length(uaa.paths)){
-      #Read in watershed delineations and crop to single watershed
-      shed <- raster(uaa.paths[j]) %>% crop(.,shape)
-      #Store this cropped watershed uaa tif in a list
-      uaa.stack[[j]] <- shed
-      #Read in slope raster and crop
-      slope <- raster(slope.paths[j]) %>% crop(.,shape)
-      #Set Slope values outside of watershed to NA
-      slope[is.na(shed)] <- NA
-      #Store in slope stack
-      slope.stack[[j]] <- slope
-      #Samesies with elevation
-      e <- raster(e.paths[j]) %>% crop(.,shape)
-      e[is.na(shed)] <- NA
-      e.stack[[j]] <- e
-  }
-  esu.stacked[[i]] <- stack(c(e.stack,slope.stack,uaa.stack)) %>% trim(.)
-}
-endCluster()
-names(all.list) <- shd.names$Name
-
-
-#save(all.list, file='data/out/ras.stack.ref.RData')
-```
-
-
-
-##  Convert raster data to data frames
-```{r}
-#Loads in all list which is a list of all sites
-load('data/out/ras.stack.ref.RData')
-
-library(doParallel) #to do parallel processing
-library(parallel) # to register parallel processing
-library(foreach) # to do parallel processing as a forloop
-#Evaluate on 7 cores
-cl <- makeCluster(3) #make a cluster with 3 cores
-registerDoParallel(cl,cores=3) #tell parallel processor to use 3 cores
-
-stack.list <- foreach(i=1:length(all.list)) %dopar% {
-  library(raster)
-  library(dplyr)
-  library(magrittr)
-  l <- extract(all.list[[i]]) %>% as.data.frame(.) %>%
-    mutate(Site = shd.names$Name[i]) 
-}
-endCluster()
-
-stack.df <- do.call('rbind',stack.list) 
-names(stack.df)[1:4] <- e.names
-
-  
-
-head(stack.df)
-#Name the rows of this wide data frame
-
-save(stack.df,file='data/out/UAA.E.Slope.Ref.RData')
-
-
-```
 
 
 

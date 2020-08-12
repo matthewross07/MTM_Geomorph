@@ -1,0 +1,1525 @@
+
+
+# Analysis and Figures
+
+## A note on PROJ 4 and PROJ 6
+
+I'm not an expert on all the implications of the migration from PROJ 4 to PROJ 6,
+however it does impact our analysis, at least in the behavior of the code. This 
+analysis was all done in EPSG:26917, which in the older version of raster (pre-2020)
+would give no warnings or errors. Since then, `raster` `gdal` and a bunch of
+other packages have migrated the projection system to PROJ 6 and now when we 
+load these old rasters in we get a warning: 
+
+`Warning message:
+In showSRID(uprojargs, format = "PROJ", multiline = "NO") :
+  Discarded datum Unknown based on GRS80 ellipsoid in CRS definition,
+ but +towgs84= values preserved`
+ 
+This warning does not affect the performance, expected behavior, or analyses in
+anyway, but it's important to note. For future analyses we need to figure out
+how to migrate this projection to `raster` so that it works well (or `terra`).
+
+
+## Data Prep
+
+```{r}
+knitr::opts_chunk$set(eval = F)
+```
+
+
+```{r setup,include=F}
+library(stringr)
+library(raster)
+library(tidyverse)
+library(rgdal)
+library(rgeos)
+library(shapefiles)
+library(maptools)
+library(leaflet)
+library(velox)
+library(foreach)
+library(snow)
+library(parallel)
+library(doParallel)
+library(tidyverse)
+library(reshape2)
+library(plotly)
+library(scales)
+library(broom)
+library(RcppRoll)
+library(zoo)
+library(knitr)
+library(kableExtra)
+library(tidyr)
+library(ggpubr)
+library(plot3D)
+library(sf)
+library(ggthemes)
+library(grid)
+library(USAboundaries)
+
+#Set ggplot2 theme
+matt_theme <- theme_set(theme_bw())
+matt_theme<- theme_update(axis.line = element_line(colour = "black"),
+                          panel.grid.major=element_blank(),
+                          panel.grid.minor = element_blank(),
+                          panel.background = element_blank(),
+                          text=element_text(family='sans','plain','black',14,0.5,0.5,0,0),
+                          plot.margin=unit(c(6,20,6,2),'pt')
+)
+
+makeTransparent = function(..., alpha=0.5) {
+
+  if(alpha<0 | alpha>1) stop("alpha must be between 0 and 1")
+
+  alpha = floor(255*alpha)  
+  newColor = col2rgb(col=unlist(list(...)), alpha=FALSE)
+
+  .makeTransparent = function(col, alpha) {
+    rgb(red=col[1], green=col[2], blue=col[3], alpha=alpha, maxColorValue=255)
+  }
+
+  newColor = apply(newColor, 2, .makeTransparent, alpha=alpha)
+
+  return(newColor)
+
+}
+
+#Make some transparent red colors
+reds <- makeTransparent('red4',alpha=.2)
+reds1 <- makeTransparent('red4',alpha=.7)
+reds2 <- makeTransparent('red4',alpha=.5)
+
+
+#Loads stack.df a wide data frame with all rasters for 5 sites
+load('data/out/UAA.E.Slope.Ref.RData')
+load('data/out/ras.stack.ref.RData')
+
+
+
+#Load in the long dataset from above chunk.
+#Load in long data
+load('data/out/Long.DF.RData')
+
+
+```
+
+
+### Convert data to long format
+
+In the following code chunk I load in the terrain analysis data convert it
+into long data and make sensible column names. I then save this file so I don't have to perform 
+the operations again. 
+
+```{r,eval=F}
+
+
+#Add an index column
+stack.df$index <- 1:nrow(stack.df)
+
+#Gather data into one long data frame
+long.df <- stack.df %>%
+  gather(Key,value,-Site,-index,na.rm=T)  %>%
+  #Fix whiteoak reference name (currently labeld just white)
+  mutate(Site=ifelse(Site=='WhiteRef','WhiteOakRef',Site)) %>%
+  #Create a column with watershed delineation data (is it old elevation shed or new elevation shed?)
+  #This information is the last word in the key column (new.e.new = new elevation profile with new watershed boundary, old.e.new = old elevation profile with new watershed boundary)
+  mutate(shed.type= ifelse(grepl('\\.',Key),str_split_fixed(Key,'\\.',n=3)[,3],NA)) %>%
+  mutate(elev.data= ifelse(grepl('\\.',Key),str_split_fixed(Key,'\\.',n=3)[,1],NA)) %>%
+  #Column to show what flow direction algorithm was used for calcuation
+  mutate(fdr.type = ifelse(grepl('8',Key),'f.8','f.inf')) %>%
+  #Elevation does not have a flow direction associated with it
+  mutate(fdr.type = ifelse(!is.na(shed.type),'None',fdr.type)) %>%
+  #What kind of data is in the column? UAA Slope or Elev?
+  mutate(Data=ifelse(grepl('shed',Key),'UAA','Slope')) %>%
+  mutate(Data=ifelse(!is.na(shed.type),'Elev',Data)) %>%
+  #Relabel 'new' as post-mining and old as pre-mining
+  mutate(Data.Source = ifelse(grepl('new',Key) & !grepl('Ref',Site),'Current','Historic')) %>%
+  #Split sites between reference and mined
+  mutate(Type = ifelse(grepl('Ref',Site),'Unmined','Mined')) %>%
+  #Rename treaments for reference to reflect historic dem and current dem
+  mutate(Data.Source=ifelse(grepl('Ref',Site) & grepl('new',Key),'Current',Data.Source)) %>%
+  mutate(Data.Source=ifelse(grepl('Ref',Site) & grepl('old',Key),'Historic',Data.Source)) %>%
+  #Make new column with huc12 watershed name
+  mutate(Watershed = gsub('Ref','',Site)) 
+
+
+dat.check <- long.df %>%
+  group_by(Watershed,Type,Data.Source,Site) %>%
+  dplyr::summarize(length=n()) 
+
+
+
+#save(long.df,file='data/out/Long.DF.RData')
+
+
+```
+
+
+## Figure 3 Study Map
+
+```{r}
+
+# Functino get outline of 
+st_envelope = function(x) st_as_sfc(st_bbox(x))
+
+load('data/out/watersheds.RData')
+
+
+watersheds <- st_as_sf(shd.shp.names,crs=26917) %>%
+  mutate(Site = c('White Oak','White Oak','Laurel', 'Laurel','Spruce','Spruce','Mud','Ben','Mud','Ben'),
+         Type=c('Mined','Reference','Reference','Mined','Reference','Mined','Reference','Reference','Mined','Mined')) %>%
+  mutate(CENTROID = map(geometry, st_centroid),
+    COORDS = map(CENTROID, st_coordinates),
+    COORDS_X = map_dbl(COORDS, 1),
+    COORDS_Y = map_dbl(COORDS, 2))
+
+boundary <- st_envelope(st_buffer(watersheds,10000))
+
+
+#No idea why the extent object wouldn't work. 
+e2010 <- raster('data/in/TauNew.tif') %>%
+  crop(.,extent(411446,460186,4154384,4221224)) %>%
+  aggregate(.,10)
+  
+
+eobj <- rasterToPoints(e2010) %>%
+  as_tibble() 
+
+
+#Weird rule where fill =T makes this possible to convert to a sf object. 
+us_states
+wv <- us_states() %>%
+  filter(stusps %in% c('WV','VA','OH','PA','DE','MD','NJ','KY')) %>%
+  st_transform(.,26917)
+
+dc <- us_cities() %>%
+  filter(grepl('Washington',city)) %>%
+  filter(grepl('District',state_name)) %>%
+  st_transform(.,26917)
+
+wv.inset <- ggplot() + 
+  geom_sf(data=wv) + 
+  theme(panel.grid.major = element_line(color='transparent')) +
+  geom_sf(data=boundary,color='red',fill=NA,size=2) +
+   theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        panel.border=element_blank()) + 
+  geom_sf(data = dc, size =5) +
+  geom_sf_text(data = wv, aes(label = state_abbr),
+               size = 5, 
+               check_overlap = T) +
+  xlim(269751,1019051)
+     
+
+
+wv.inset
+
+wv.dem <- ggplot() + 
+  geom_tile(data=eobj,aes(x=x,y=y,fill=TauNew)) + 
+  theme_few(base_size=14) + 
+  theme(panel.grid.major = element_line(color='transparent')) +
+  geom_sf(data=watersheds,aes(color=Type),fill=NA,size=1) +
+  scale_color_manual(values=c('blue','purple4'),name='',guide=F) +
+  scale_fill_gradient2(high='blue2',low='red2',mid='gray70',midpoint=600,name='Elev. (m)')+
+  xlab('') + 
+  ylab('') +
+  theme(legend.position=c(0.85,0.6)) +
+  geom_text(data=watersheds %>%
+              filter(Type=='Reference'),aes(x=COORDS_X,y=COORDS_Y,label=Site),nudge_x=3500, nudge_y=3000,size=3.5)
+
+
+png(filename='Figures2018/fig3_studymap.png',width=5.9,height=6.3,units='in',res=300)
+vp <- viewport(width=0.35,height=0.4,x=0.73,y=0.25)
+print(wv.dem)
+print(wv.inset,vp=vp)
+dev.off()
+```
+
+
+# Raw site summaries
+
+Summary statistics (median elevation, total relief, etc...) for each watershed. 
+
+## Percent mining
+
+While we attempted to capture control watersheds that were entirely unmined and mined watersheds that were > 80% mined, there is still variation around the amount of mining in each watershed. Here we use data from a paper by Andrew Pericack and others to find when and where mining occured and we use that layer to asses the mining coverage in each watershed as of 2011, when the post-mining watersheds were generated. 
+
+
+```{r}
+
+
+#Read in mining detection layer from Pericack et al., 2018
+first.mined <- raster('data/in/FirstMinedCamp.tif') 
+
+#The first raster in the list of rasters (all list) is the elevation profile
+#of the current watershed delineation. Use this to get % mining for each site
+
+#Use foreach to speedup the operation. Using 3 cores instead of one
+cl <- makeCluster(8)
+#Register the cores (starts independent R Sessions)
+registerDoParallel(cl,cores=8)
+#Run a foreach loop that stores results in a list (pmine.list)
+pmine.list <- foreach(i=1:length(all.list)) %dopar% {
+  #Have to load in the important libraries for each session
+  library(raster)
+  library(tidyverse)
+  library(rgeos)
+  #Read in the raw elevation profile (first in the list)
+  ras.raw <- all.list[[i]][[1]] 
+  #Project the raster into the first.mined raster projection
+  ras <-  projectRaster(ras.raw,crs=projection(first.mined)) 
+  #Crop the mined raster
+  mine.ras <- first.mined %>%
+    crop(.,ras) 
+  #Project the raster resolution onto the mine resolution (from 10 to 30m)
+  ras.res <- projectRaster(ras,mine.ras)
+  #Mask out the areas outside of the watershed
+  mine.mask <- raster::mask(mine.ras,ras.res)
+  #Get the number of mined pixels 
+  ras.area = length(ras.res[!is.na(ras.res)])
+  #Get the percent mining (mined pixels/total pixels)
+  mine.area = length(mine.mask[mine.mask < 2012])
+  pmine=mine.area/ras.area
+  #Store this as a data frame. 
+  dat <- tibble(pmine=pmine,
+                Site=names(all.list)[[i]],
+                area=round(length(ras.raw[!is.na(ras.raw)])*100/(1000*1000),1))
+}
+#End the foreach loop
+stopCluster(cl)
+
+#Cast the data into a sensible data frame 
+pmine.dat <- do.call('rbind',pmine.list) %>%
+  mutate(Site=gsub('WhiteRef','WhiteOakRef',Site)) %>%
+  mutate(pmine=round(pmine,2)*100) %>%
+  dplyr::select(Site,pmine) %>%
+  arrange(Site)
+
+
+
+
+
+```
+
+
+
+### Elevation
+
+The elevation profiles of the watersheds change following mining. Summary statistics on changes are calculated here. 
+
+```{r}
+
+#Summarize stats by watershed. 
+elev.summary <- long.df %>%
+  filter(Data == 'Elev') %>%
+  filter(Key %in% c('Old.e.old','New.e.new')) %>%
+  group_by(Site,Watershed,Type,Data.Source) %>% 
+  dplyr::summarize(max=max(value),
+            min=min(value),
+            median=round(median(value),0),
+            mean=mean(value),
+            sd=sd(value),
+            area=round(n()*100/(1000*1000),2))%>% #km2
+  mutate(relief=max-min) 
+
+
+#Turn the above long dataset into a wide format. 
+e.wide <- elev.summary %>%
+  ungroup(.) %>%
+  dplyr::select(Site,Type,Data.Source,mean) %>%
+  spread(Data.Source,mean) %>%
+  arrange(Site) %>% 
+  mutate(elev.change= Current/Historic)%>%
+  rename(Current.elev=Current,Historic.elev=Historic)
+
+#Get a relief summary
+r.wide <- elev.summary %>%
+  ungroup(.) %>%
+  dplyr::select(Site,Type,Data.Source,relief) %>%
+  spread(Data.Source,relief) %>%
+  arrange(Site) %>% 
+  mutate(relief.change= Current/Historic)%>%
+  rename(Current.relief=Current,Historic.relief=Historic)
+
+
+#Get the area data from above. 
+area.wide <- elev.summary %>%
+  ungroup(.) %>%
+  dplyr::select(Site,Type,Data.Source,area) %>%
+  spread(Data.Source,area) %>%
+  arrange(Site) %>%
+  mutate(area.change= Current/Historic)%>%
+  rename(Current.area=Current,Historic.area=Historic)
+
+
+```
+
+
+### Slope
+
+Slope changes dramatically in mining landscapes and those changes are calculated here. 
+
+```{r}
+#Calculate summary statistics for each watershed and data type 
+slope.summary <- long.df %>%
+  filter(Data == 'Slope') %>%
+  filter(fdr.type=='f.inf') %>%
+  group_by(Site,Watershed,Type,Data.Source) %>% 
+  dplyr::summarize(max=max(value),
+            min=min(value),
+            median=round(median(value),2),
+            mean=mean(value),
+            sd=sd(value)) %>%
+  mutate(relief=max-min) 
+
+
+#Widen that data. 
+s.wide <- slope.summary %>%
+  ungroup(.) %>%
+  dplyr::select(Site,Type,Data.Source,median) %>%
+  spread(Data.Source,median) %>%
+  mutate(slope.change= Current/Historic)%>%
+  arrange(Site) %>%
+  rename(Current.slope=Current,Historic.slope=Historic)
+
+
+```
+
+### Drainage density
+
+Our previous work has identified 1000 pixels has an approximate drainage area for the initiation of channels. 
+```{r}
+
+drainage.density <- long.df %>%
+  filter(Data == 'UAA') %>%
+  filter(fdr.type=='f.inf') %>%
+  group_by(Site,Watershed,Type,Data.Source) %>% 
+  dplyr::summarize(drainage.length = length(which(value > 1000)),
+                   drainage.area=n(),
+                   drainage.density=round(drainage.length/drainage.area,3))
+
+
+
+d.wide <- drainage.density %>%
+  ungroup(.) %>%
+  dplyr::select(Site,Type,Data.Source,drainage.density) %>%
+  spread(Data.Source,drainage.density) %>%
+  mutate(DD.change= Current/Historic)%>%
+  arrange(Site) %>%
+  rename(Current.DD=Current,Historic.DD=Historic)
+
+
+```
+
+
+
+
+
+## Total summary 
+
+```{r}
+site.summary <- pmine.dat %>%
+  left_join(e.wide,by=c('Site')) %>%
+  left_join(area.wide,by=c('Site','Type')) %>%
+  left_join(s.wide,by=c('Site','Type'))  %>%
+  left_join(d.wide,by=c('Site','Type')) %>%
+  left_join(r.wide,by=c('Site','Type')) %>%
+  select(Site,Type,everything()) %>%
+  mutate_if(is.numeric,round,2)
+
+
+flip_summary <- as_tibble(cbind(nms = names(site.summary), t(site.summary))) %>%
+  mutate(nms = gsub('\\.',' ',.$nms))
+
+
+write_csv(flip_summary,path='Figures2018/SiteSummary.csv')
+```
+
+
+# Process Zones with Slope Area and Cumulative Area Distribution
+
+
+## UAA Slope Cutting
+
+```{r}
+#keep only f.inf data
+#Reference sites are slightly smaller on average so they need a smaller value for switching bin width from lots per bin (1000) to fewer (100)
+
+uaa.small <- long.df %>%
+  dplyr::filter(fdr.type=='f.inf') %>%
+  dplyr::filter(Data!='Elev') %>%
+  #Sites less than 6km2 get smaller cut break
+  select(Site,Type,Data,Data.Source,value,index) %>%
+  spread(key=Data,value) %>%
+  dplyr::filter(UAA <= 6*1000*1000) %>%
+  mutate(area.m2 = round(UAA*10,0)) %>%
+  group_by(Site,Data.Source) %>%
+  mutate(area.bins = ifelse(area.m2 < 20000,Hmisc::cut2(area.m2,m=200),Hmisc::cut2(area.m2,m=50))) %>%
+  ungroup() %>%
+  group_by(Site,Type,Data.Source,area.bins) %>%
+  dplyr::summarize(sd.slope=sd(Slope,na.rm=T),
+                  Slope=mean(Slope),
+                   n=n(),
+                    UAA=mean(area.m2))
+
+
+
+
+#only change here is cut point for switching bin width size
+uaa.big <- long.df %>%
+  dplyr::filter(fdr.type=='f.inf') %>%
+  dplyr::filter(Data!='Elev') %>%
+  select(Site,Type,Data,Data.Source,value,index) %>%
+  spread(key=Data,value) %>%
+  #Sites greater than 6km2 get smaller cut break
+  dplyr::filter(UAA > 6*1000*1000) %>%
+  mutate(area.m2 = round(UAA*10,0)) %>%
+  group_by(Site,Data.Source) %>%
+  mutate(area.bins = ifelse(area.m2 < 40000,Hmisc::cut2(area.m2,m=200),Hmisc::cut2(area.m2,m=50))) %>%
+  group_by(Site,Type,Data.Source,area.bins) %>%
+  dplyr::summarize(sd.slope=sd(Slope,na.rm=T),
+                    Slope=mean(Slope),
+                   n=n(),
+                    UAA=mean(area.m2))
+
+uaa <- bind_rows(uaa.small,uaa.big) %>%
+  filter(!is.na(Slope))
+
+
+```
+
+
+
+### Slope Area Standard Deviation Plots
+```{r}
+
+library(ggthemes)
+
+pdf(file='figures2018/SA.SD.pdf',width=10,height=5)
+uaa %>%
+  ungroup(.) %>%
+  mutate(Site = gsub('Ref','',Site)) %>%
+  ggplot(aes(x=UAA,y=sd.slope,color=Data.Source)) + 
+  geom_point() + 
+  facet_grid(Type ~ Site) + 
+  scale_colour_few() +
+  ylab('SD Slope (m/m)') + 
+  theme(legend.position='top',legend.direction = 'horizontal') + 
+  scale_y_log10(limits=c(0.01,1)) + 
+  xlab(expression(paste('Area (',m^2,')'))) + 
+    scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) 
+dev.off()
+
+
+```
+
+
+##SA Derivative and Smoothing
+
+Detecting zone changes with the raw data detects too many spurious changes related to simple variability. Here we smooth the data using a simple LOESS spline. Then we detect process zones on the smoothed data. 
+
+```{r}
+
+#Make a dataframe with seamless UAA for derivation
+#This changed a lot since last time, tibble update? mac vs linux? 
+full.uaa <- 10^seq(2,7,.01) %>% list(.)
+
+
+
+myloess <- function(data){
+  mod <- loess(log10(Slope) ~ log10(UAA),span=0.4,data=data)
+}
+
+
+uaa.nest <- uaa %>% 
+  group_by(Site,Type,Data.Source) %>%
+  nest() %>%
+  mutate(mods=purrr::map(data,myloess))  %>%
+  as_tibble()
+
+
+
+
+
+uaa.seam <- uaa.nest %>%
+  select(-mods,-data) %>%
+  mutate(UAA=full.uaa) %>%
+  unnest(c(UAA)) %>%
+  group_by(Site,Type,Data.Source) %>%
+  nest() %>%
+  rename(newdata=data) %>%
+  full_join(uaa.nest,by=c('Site','Type','Data.Source')) %>%
+  mutate(pred=map2(mods,newdata,predict)) %>%
+  unnest(c(newdata,pred)) %>%
+  mutate(pred=10^pred) %>%
+  na.omit(.)
+
+
+uaa.dif <- uaa.seam %>%
+  group_by(Site,Type,Data.Source) %>%
+  arrange(desc(UAA)) %>%
+  mutate(derv=c(NA,diff(log10(pred))/(diff(log10(UAA))))) %>%
+  ungroup()
+
+
+
+
+```
+
+## SA Break ID
+
+```{r}
+#Using the derivitave data we can automate most of the slope breaks
+
+#Breaks come at 0 value, min value and 
+#Use closest from DescTools to get closes value to zero
+library(DescTools)
+library(strucchange) #Winner winner chicken dinner!
+#Frist breaks are befrore 10^4 by visual inspection. First minimum is generally the biggest minimum but not for all sites particularly post-mining
+
+
+hillslope.breaks <- uaa.dif %>%
+  group_by(Data.Source,Site,Type) %>%
+  mutate(max.mod = max(pred,na.rm=T)) %>% 
+  filter(pred == max.mod) %>%
+  arrange(Site,Type,Data.Source,UAA) %>%
+  mutate(breaks = c('b1')) %>%
+  dplyr::select(Site,Type,Data.Source,breaks,value=UAA,brk.derv=derv)
+
+
+
+#Find the alluvial break which is where the UAA Slope plot rolls over in the dervative space this after the break 2 minimum and at the next rolling maximum. This is always before 10^4.5 by visual inspection
+mybreaks <- function(sa.data){
+  sa.data <- sa.data %>%
+    filter(!is.na(pred)) %>%
+    filter(UAA > 0) %>%
+    arrange(UAA)
+  bkpt <- Fstats(log10(sa.data$pred) ~ log10(sa.data$UAA), from=0.4)
+  bk.points <-  sa.data %>%
+    filter(index %in% bkpt$breakpoint) %>%
+    select(index,UAA, derv)
+  return((bk.points))
+}
+
+
+
+alluvial.breaks <- uaa.dif %>%
+  left_join(hillslope.breaks,by=c('Data.Source','Site','Type')) %>%
+  filter(UAA >= value) %>%
+  filter(UAA < 10^4) %>%
+  group_by(Data.Source,Site,Type) %>%
+  mutate(index=1:n()) %>%
+  nest() %>%
+  mutate(alluvials=purrr::map(data,mybreaks)) %>%
+  unnest(alluvials) %>%
+  group_by(Data.Source,Site,Type) %>%
+  mutate(breaks=c('b2')) %>%
+  dplyr::select(Site,Type,Data.Source,breaks,value=UAA,brk.derv=derv)
+
+
+
+fluvial.breaks <- uaa.dif %>%
+  left_join(alluvial.breaks,by=c('Data.Source','Site','Type')) %>%
+  filter(UAA >= value) %>%
+  filter(UAA < 10^5.5) %>%
+  group_by(Data.Source,Site,Type) %>%
+  mutate(index=1:n()) %>%
+  nest() %>%
+  mutate(alluvials=purrr::map(data,mybreaks)) %>%
+  unnest(alluvials) %>%
+  group_by(Data.Source,Site,Type) %>%
+  mutate(breaks=c('b3')) %>%
+  dplyr::select(Site,Type,Data.Source,breaks,value=UAA,brk.derv=derv)
+
+
+
+sa.breaks<- bind_rows(hillslope.breaks,alluvial.breaks,fluvial.breaks) %>%
+  arrange(Site,Data.Source,value)
+
+sa.brk.wide <- sa.breaks %>%
+  dplyr::select(-brk.derv) %>%
+  spread(key=breaks,value=value)
+
+
+sa.mine.breaks <- sa.breaks %>%
+  filter(Type=='Mined') %>%
+  arrange(Site,Data.Source,Type) %>%
+  mutate(logb=log10(value))
+
+sa.unmine.breaks  <- sa.breaks %>%
+  filter(Type!='Mined') %>%
+  arrange(Site,Data.Source,Type)
+
+#Write out the breaks
+write_csv(sa.breaks,path='Figures2018/sa.breaks.csv')
+```
+
+
+
+### Region slopes
+
+```{r}
+
+uaa.brk <- uaa %>%
+  left_join(sa.brk.wide,by=c('Site',"Data.Source",'Type')) 
+
+sa.zone.lm <- function(sa.data){
+  mod <- lm(log10(Slope) ~ log10(UAA),data=sa.data)
+  keys <- tibble(adj.r.squared=glance(mod)$adj.r.squared,
+                 p.value=glance(mod)$p.value,
+                 reg.slope=tidy(mod)$estimate[2])
+  return(keys)
+}
+
+
+sa.z2<- uaa.brk %>%
+  filter(UAA > b1 & UAA < b2) %>%
+  group_by(Site,Data.Source,Type) %>%
+  nest() %>%
+  mutate(zone = 'z2') %>%
+  mutate(mods = map(data,sa.zone.lm)) %>%
+  unnest(mods) %>%
+  select(-data) %>%
+  arrange(Site,Data.Source)
+
+
+
+sa.z23 <- uaa.brk %>%
+  filter(UAA > b1 ) %>%
+  group_by(Site,Data.Source,Type) %>%
+  nest() %>%
+  mutate(zone = 'z23') %>%
+  mutate(mods = map(data,sa.zone.lm)) %>%
+  unnest(mods) %>%
+  select(-data) %>%
+  arrange(Site,Data.Source)
+
+
+sa.z3 <- uaa.brk %>%
+  filter(UAA > b2 & UAA <  b3) %>%
+  group_by(Site,Data.Source,Type) %>%
+  nest() %>%
+  mutate(zone = 'z4') %>%
+  mutate(mods = map(data,sa.zone.lm)) %>%
+  unnest(mods) %>%
+  select(-data)
+  
+sa.z4 <-  uaa.brk %>%
+  filter(UAA >  b3) %>%
+  group_by(Site,Data.Source,Type) %>%
+  nest() %>%
+  mutate(zone = 'z4') %>%
+  mutate(mods = map(data,sa.zone.lm)) %>%
+  unnest(mods) %>%
+  select(-data)
+  
+
+zone.regressions <- bind_rows(sa.z2,sa.z3,sa.z23,sa.z4)
+write_csv(zone.regressions,path='Figures2018/sa.zone.regressions.csv')
+
+```
+
+
+## Figure 4 - SA Plots
+
+
+```{r}
+
+#Load in field and satellite channel head measurements
+# This loads in a data.frame called fld which is field measurements of
+# channel heads, and another one called sw which we won't use here 
+# 
+# 
+#Load in field channel heads
+load('data/in/ChannelHeads.RData')
+#Read in constructed channel heads
+bc <- read_csv('data/in/Const_Channels.csv')
+
+
+bc1 <- bc %>%
+  filter(Name != 'NC') %>%
+  mutate(UAA = lidarfac*100,
+         Slope = lidarslope/100,
+         Site = 'Mud',
+         Type = 'Mined',
+         Channel = 'Constructed') %>%
+  select(UAA, Slope, Site, Type, Channel)
+
+
+channel_heads <- fld %>%
+  select(-ID) %>%
+    mutate(UAA = SnapFAC*100,
+         Slope = FSlope/100,
+         Site = 'Mud',
+         Type = 'Unmined',
+         Channel = 'Natural') %>%
+  select(names(bc1)) %>%
+  bind_rows(bc1)
+
+channel_heads
+
+
+sa.breaks$Site <- gsub('Ref','',sa.breaks$Site)
+sa.all <- uaa %>%
+  select(Site,Type,Data.Source,UAA,Slope) %>%
+  ungroup() %>%
+  mutate(Site = gsub('Ref','',Site)) %>%
+  ggplot(.,aes(x=UAA,y=Slope,color=interaction(Data.Source,Type))) + 
+  geom_point(size=1) + 
+  stat_smooth(method='loess',span=0.4,se=F) + 
+  geom_vline(data=sa.breaks,aes(xintercept=value,color=interaction(Data.Source,Type))) + 
+  facet_grid(Type~Site,scales='free_y') + 
+  geom_point(data = channel_heads,aes(fill = Channel), pch = 22, color = 'black') + 
+  scale_color_manual(name='Data Source',values=c('red','blue','Orange3','Purple4')) + 
+  theme(legend.position='top',legend.direction='horizontal',
+        legend.box = 'vertical') + 
+  scale_fill_manual(name = 'Channel heads', values = c(reds,'#ffba00')) + 
+  ylab('Slope (m/m)') +
+  xlab(expression(paste('Upslope Accumulated Area (',m^2,')'))) + 
+  scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) + 
+  scale_y_log10(limits=c(0.01,1),breaks=c(0.01,0.1,1))
+
+
+
+
+sa.all
+
+pdf(file='Figures2018/SA.All.pdf',width=10,height=6)
+
+sa.all
+
+dev.off()
+
+
+```
+
+
+
+
+# Cumulative area distribution
+
+
+```{r}
+#Cut uaa into a sequential cad with a equally spaced sequence (equal in log space)
+
+cad <- long.df %>%
+  dplyr::filter(fdr.type=='f.inf') %>%
+  dplyr::filter(Data!='Elev') %>%
+  #Sites less than 6km2 get smaller cut break
+  select(Site,Type,Data,Data.Source,value,index) %>%
+  spread(key=Data,value) %>%
+  mutate(area.m2 = round(UAA*10,2)) %>%
+  group_by(Site,Data.Source) %>%
+  mutate(area.bins = cut(area.m2,breaks=unique(area.m2)))%>%
+  ungroup() %>%
+  group_by(Site,Type,Data.Source,area.bins) %>%
+  dplyr::summarize(UAA=mean(area.m2,na.rm=T),
+                   UAA.sd = sd(area.m2,na.rm=T)) %>%
+  group_by(Site,Type,Data.Source,UAA) %>%
+  summarise(Freq=n()) %>%
+  arrange(Site,Type,Data.Source,desc(UAA)) %>%
+  mutate(Cume_Freq=(cumsum(Freq)/sum(Freq))) %>%
+  mutate(revuaa=rev(UAA)) %>%
+  mutate(smooth.freq=runmed(Cume_Freq,5)) 
+  
+
+
+```
+
+
+## Cad breaks
+
+```{r}
+
+
+mycad.breaks <- function(cad.data){
+  cad.model <- cad.data %>%
+    filter(UAA > 0) %>%
+    arrange(UAA)
+  bkpt <- Fstats(log10(cad.model$Cume_Freq) ~ log10(cad.model$UAA),from=0.5)
+  bk.points <-  cad.data %>%
+    filter(index %in% bkpt$breakpoint)
+  return((bk.points))
+}
+
+
+
+#Data density for CAD is much higher than SA so this takes ~ 10 minutes to run
+#Shortened the runtime by trimming data to a region that captures all breaks across all sites when run across full data. 
+diffusecad <- cad %>%
+  filter(UAA < 5000 ) %>%
+  group_by(Data.Source,Site,Type) %>%
+  mutate(index=1:n()) %>%
+  nest() %>%
+  mutate(hills=purrr::map(data,mycad.breaks)) %>%
+  unnest(hills) %>%
+  group_by(Data.Source,Site,Type) %>%
+  mutate(breaks=c('b1')) %>%
+  dplyr::select(Site,Type,Data.Source,breaks,value=UAA)
+
+incisioncad <- cad %>%
+  left_join(diffusecad,by=c('Site','Type','Data.Source')) %>%
+  filter(UAA > value+1000 & UAA < 10^5) %>%
+  mutate(index=1:n()) %>%
+  nest() %>%
+  mutate(incise=purrr::map(data,mycad.breaks)) %>%
+  unnest(incise) %>%
+  group_by(Data.Source,Site,Type) %>%
+  mutate(breaks=c('b2')) %>%
+  dplyr::select(Site,Type,Data.Source,breaks,value=UAA)
+
+
+stemcad <- cad %>%
+  left_join(incisioncad,by=c('Site','Type','Data.Source')) %>%
+  filter(UAA > 10^5.3) %>%
+  mutate(index=1:n()) %>%
+  nest() %>%
+  mutate(incise=purrr::map(data,mycad.breaks)) %>%
+  unnest(incise) %>%
+  group_by(Data.Source,Site,Type) %>%
+  mutate(breaks=c('b3')) %>%
+  dplyr::select(Site,Type,Data.Source,breaks,value=UAA)
+
+
+cad.breaks <- bind_rows(diffusecad,incisioncad,stemcad) %>%
+  ungroup() %>%
+   mutate(Site = gsub('Ref','',Site))
+
+
+cad.g <- cad %>% 
+  ungroup() %>%
+  mutate(Site = gsub('Ref','',Site)) %>%
+ggplot(.,aes(x=UAA,y=Cume_Freq,color=interaction(Data.Source,Type),size=Data.Source)) + 
+  geom_point(shape=1) + 
+  scale_size_manual(name='',guide=F,values=c(1.2,0.4)) +
+  scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x)))  + scale_y_log10(limits=c(0.001,1),breaks=c(0.001,0.01,0.1,1)) + 
+  facet_grid(Type~Site) + 
+  geom_vline(data=cad.breaks,aes(xintercept=value,color=interaction(Data.Source,Type))) + 
+  theme(legend.position = 'top',legend.direction = 'horizontal') +
+  scale_color_manual(name='Data Source',values=c('red','blue','orange3','purple4')) +
+  ylab('P (A>A*)') + 
+  xlab(expression(paste('Upslope Accumulated Area (',m^2,')'))) 
+
+
+png(filename='Figures2018/Fig5_CAD.All2decimals.png',width=10,height=6,units='in',res=300)
+cad.g
+
+dev.off()
+```
+
+
+## UAA Density
+```{r}
+
+pdf(file='Figures2018/UAA.Density.pdf',width=10,height=5)
+cad %>% 
+  ggplot(.,aes(x=UAA, fill=Data.Source)) +
+  geom_density(alpha=0.5) + 
+  scale_x_log10() + 
+  scale_fill_manual(values=c('Red','Blue')) + 
+  facet_wrap(~Site,ncol=5) + 
+  theme(legend.position = 'top',legend.direction='horizontal')  
+
+dev.off()
+
+```
+
+
+
+# Energy Index
+
+## Figure 6 EI Plots
+
+```{r}
+ei <- long.df %>%
+  dplyr::filter(fdr.type=='f.inf') %>%
+  dplyr::filter(Data!='Elev') %>%
+  #Sites less than 6km2 get smaller cut break
+  select(Site,Type,Data,Data.Source,value,index) %>%
+  spread(key=Data,value) %>%
+  mutate(area.m2 = round(UAA*10,1)) %>%
+  mutate(ei=round(Slope*area.m2,1)) %>%
+  group_by(Site,Data.Source) %>%
+  mutate(ei.bins = cut(ei,breaks=unique(ei)))%>%
+  group_by(Site,Type,Data.Source,ei.bins) %>%
+  dplyr::summarize(UAA=mean(area.m2,na.rm=T),
+                   UAA.sd = sd(area.m2,na.rm=T),
+                   ei=round(mean(ei,na.rm=T),1)) %>%
+  group_by(Site,Type,Data.Source,ei) %>%
+  summarise(Freq=n()) %>%
+  arrange(Site,Type,Data.Source,desc(ei)) %>%
+  mutate(Cume_Freq=(cumsum(Freq)/sum(Freq))) %>%
+  mutate(revei=rev(ei))
+
+ei.g <- ei %>% 
+  filter(ei > 0.01) %>%
+  ungroup() %>%
+  mutate(Site = gsub('Ref','',Site)) %>%
+ggplot(.,aes(x=ei,y=Cume_Freq,color=interaction(Data.Source,Type),size=Data.Source)) + 
+  geom_point(shape=1) + 
+  scale_size_manual(name='',guide=F,values=c(1.2,0.4)) +
+  scale_x_log10(breaks=trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x)))  + scale_y_log10(limits=c(0.0005,1),breaks=c(0.001,0.01,0.1,1)) + 
+  facet_grid(Type~Site) + 
+  theme(legend.position = 'top',legend.direction = 'horizontal') +
+  scale_color_manual(name='Data Source',values=c('red','blue','orange3','purple4')) +
+  ylab('EI (EI>EI*)') + 
+  xlab(expression(paste('Energy Index (S*A)')))
+
+ei.g
+
+png(filename='Figures2018/Fig_6_EI.Cume.png',width=10,height=6,units='in',res=300)
+ei.g
+dev.off()
+
+```
+
+
+
+# 3D plots
+
+```{r}
+
+sites <- names(all.list)
+
+  #Get zlim values
+lim <- function(x,y){
+      max1 <- maxValue(x)
+      min1 <- minValue(x)
+      max2 <- maxValue(y)
+      min2 <- minValue(y)
+      zlims <-c(floor(min(c(min1,min2))),ceiling(max(c(max1,max2))))
+      return(zlims)
+  }
+
+super_plotter <- function(spruce = all.list[[10]],
+                          filename = filename){
+  newdem <- spruce[[1]]
+  olddem <- spruce[[4]]
+  newfac <- spruce[[9]]
+  oldfac <- spruce[[10]]
+  newslp <- spruce[[5]]
+  oldslp <- spruce[[6]]
+  newei <- newfac*newslp
+  oldei <- oldfac*oldslp
+  
+  
+  #Convert rasters to matrices
+  old.s <- as.matrix(oldslp)
+  new.s <- as.matrix(newslp)
+  old.ei <- log10(as.matrix(oldei))
+  new.ei <- log10(as.matrix(newei))
+  old.ei[old.ei==-Inf] <- -1
+  new.ei[new.ei==-Inf] <- -1
+  
+  
+  old.m.na <- as.matrix(olddem)
+  new.m.na <- as.matrix(newdem)
+  olddem[is.na(olddem)] <- minValue(olddem)-1
+  newdem[is.na(newdem)] <- minValue(newdem)-1
+  old.m <- as.matrix(olddem)
+  new.m <- as.matrix(newdem)
+  old.f.m <- log10(as.matrix(oldfac))
+  old.f.m[old.f.m==-Inf] <- 1
+  new.f.m <- log10(as.matrix(newfac))
+  new.f.m[new.f.m==-Inf] <- 1
+  x <- 1:nrow(old.m)*10
+  y <- 1:ncol(old.m)*10
+  
+
+
+  png(filename=filename,width=12,height=10,units='in',res=300)
+    #Verbose code to get exactly the plot I want. 
+    cols <-colorRampPalette(c('forestgreen','brown2'))
+    bord <- rgb(0,0,0,0)
+    
+    
+    
+    par(mar=c(0,0,0,0),mgp=c(1.8,0.5,0),cex=1.5,cex.lab=1.5,cex.axis=1.3)
+    
+    mx <- matrix(c(1,1,2,2,3,4,4,5,5,6,7,7,8,8,9,10,10,11,11,12),4,5,byrow=T)
+    layout(mx)
+    
+    #OldDEM
+    l.dist <- -0.05
+    theta <- -90.5
+    phi <- 45
+    shade=.65
+    lphi=0
+    ltheta=-135
+    # par(mfrow=c(1,2))
+    # hist(old.f.m,col='grey',ylim=c(0,6000),breaks=seq(0,7,by=.1))
+    # hist(new.f.m,col='grey',ylim=c(0,6000),breaks=seq(0,7,by=.1))
+    # 
+    zlims <- lim(olddem,newdem)
+    
+    
+    
+    ## Old DEM, Top Left
+    persp3D(x=x, y=y,z=old.m,col=c('gray30'),lighting=T,colkey=list(plot=FALSE),theta=theta,phi=phi,
+            scale = FALSE, shade = 1,clab='Elev. (m)',axes=F,zlim=zlims,box=F,
+            ticktype='detailed',xlab='North (m)',ylab='East (m)',zlab='Elev (m)',inttype=2,expand=2)
+    
+    persp3D(x=x, y=y,z=old.m.na,col=c(bord,cols(200)),
+            colkey=list(side=4,line.clab=1,dist=l.dist,width=0.75,length=0.5,mgp=c(2,0.6,0)),
+            lighting=T,add=T,clim=zlims,zlim=zlims,box=F,
+            scale = FALSE, shade = 0.6,clab='Elev. (m)',expand=2,
+            inttype=2)
+    
+    
+    #NewDEM, Top Middle
+    persp3D(x=x, y=y,z=new.m,col=c('gray30'),lighting=T,colkey=list(plot=FALSE),theta=theta,phi=phi,
+            scale = FALSE, shade = 1,clab='Elev. (m)',axes=F,zlim=zlims,box=F,
+            ticktype='detailed',xlab='North (m)',ylab='East (m)',zlab='Elev (m)',inttype=2,expand=2)
+    persp3D(x=x, y=y,z=new.m.na,col=c(bord,cols(200)),colkey=list(plot=F),
+            lighting=T,add=T,clim=zlims,zlim=zlims,box=F,
+            scale = FALSE, shade = 0.6,clab='Elev. (m)',expand=2,
+            inttype=2)
+    
+    
+    #Elevation histogram, top right
+    hist.mar <- c(3,0,0.5,2)
+    par(mar=hist.mar)
+    hist(old.m.na,breaks=seq(zlims[1],zlims[2],length.out=50),xlim=zlims,col='blue',ylim=c(0,4500),xlab='Elevation (m)',ylab='Frequency',main='')
+    reds2 <- makeTransparent('red',alpha=.8)
+    hist(new.m.na, breaks=seq(zlims[1],zlims[2],length.out=50),xlim=zlims,col=reds2,add=T,density=40)
+    
+    
+    
+    
+    par(mar=c(0,0,0,0))
+    #OldSlope
+    
+    slims <- c(0,2)
+    scols <- colorRampPalette(c('yellow3','red','red4'))
+    persp3D(x=x, y=y,z=old.m,col=c('gray30'),lighting=T,colkey=list(plot=FALSE),theta=theta,phi=phi,
+            scale = FALSE, shade = 1,clab='Elevation (m)',axes=F,zlim=zlims,box=F,
+            ticktype='detailed',xlab='North (m)',ylab='East (m)',zlab='Elev (m)',inttype=2,expand=2)
+    persp3D(x=x, y=y,z=old.m.na,col=c(scols(200)),colvar = old.s,
+            colkey=list(side=4,line.clab=1,dist=l.dist,width=0.75,length=0.5,mgp=c(2,0.6,0)),
+            add=T,clim=slims,zlim=zlims,box=F,NAcol=bord,
+            scale = FALSE,clab='Slope (m/m)',expand=2,shade=shade,lphi=lphi,ltheta=ltheta,
+            inttype=2)
+    
+    #NewSlope
+    persp3D(x=x, y=y,z=new.m,col=c('gray30'),lighting=T,colkey=list(plot=FALSE),theta=theta,phi=phi,
+                scale = FALSE, shade = 1,clab='Elevation (m)',axes=F,zlim=zlims,box=F,
+                ticktype='detailed',xlab='North (m)',ylab='East (m)',zlab='Elev (m)',inttype=2,expand=2)
+    persp3D(x=x, y=y,z=new.m.na,col=c(scols(200)),colvar=new.s,NAcol=bord,
+            colkey=list(plot=F),add=T,zlim=zlims,box=F,shade=shade,lphi=lphi,ltheta=ltheta,
+            scale = FALSE,clab='Slope (m/m)',expand=2,inttype=2,clims=slims)
+    
+    
+    par(mar=hist.mar)
+    hist(old.s,breaks=seq(0,4,length.out=100),xlim=c(0,1.2),col='blue',ylim=c(0,5000),xlab='Slope (m/m)',ylab='Frequency',main='')
+    hist(new.s, breaks=seq(0,4,length.out=100),xlim=c(0,1.2),col=reds2,add=T,density=40)
+    
+    
+
+    #OldFAC
+    par(mar=c(0,0,0,0))
+    flims <- log10(lim(newfac,oldfac))
+    cols.f <- colorRampPalette(c('lightblue','darkblue','purple4','mediumvioletred'))
+    persp3D(x=x, y=y,z=old.m,col=c('gray30'),lighting=T,colkey=list(plot=FALSE),theta=theta,phi=phi,
+                scale = FALSE, shade = 1,clab='Elevation (m)',axes=F,zlim=zlims,box=F,
+                ticktype='detailed',xlab='North (m)',ylab='East (m)',zlab='Elev (m)',inttype=2,expand=2)
+    persp3D(x=x, y=y,z=old.m.na,col=c('white',cols.f(50)),colvar=(old.f.m),
+            colkey=list(side=4,line.clab=1,dist=l.dist,width=0.75,length=0.5,mgp=c(2,0.6,0)),
+            add=T,zlim=zlims,box=F,shade=shade,lphi=lphi,ltheta=ltheta,
+            scale = FALSE,clab=expression(bold(paste('Log UAA (',m^2,')',sep=''))),expand=2,clims=flims,
+            inttype=2)
+    
+    
+    
+    #NewFAC
+    persp3D(x=x, y=y,z=new.m,col=c('gray30'),lighting=T,colkey=list(plot=FALSE),theta=theta,phi=phi,
+                scale = FALSE, shade = 1,clab='Elevation (m)',axes=F,zlim=zlims,box=F,
+                ticktype='detailed',xlab='North (m)',ylab='East (m)',zlab='Elev (m)',inttype=2,expand=2)
+    persp3D(x=x, y=y,z=new.m.na,col=c('white',cols.f(100)),colvar=new.f.m,
+            colkey=list(plot=F),add=T,zlim=zlims,box=F,
+            scale = FALSE,clab='',shade=shade,lphi=lphi,ltheta=ltheta,
+            expand=2,inttype=2,clims=flims)
+    
+    old.f <- 10^old.f.m
+    
+    par(mar=hist.mar)
+    hist(old.f.m,breaks=seq(1,6.05,length.out=100),col='blue',ylim=c(0,6200),
+      xlab=expression(paste('UAA (',m^2,')',sep='')),ylab='Frequency',main='',xaxt='n')
+    axis(1,at=c(1,2,3,4,5,6),labels=c(expression(10^1),expression(10^2),expression(10^3),expression(10^4),expression(10^5),expression(10^6)))
+    hist(new.f.m, breaks=seq(1,6.05,length.out=100),xlim=c(1,6),col=reds2,add=T,density=40)
+    legend(x=10^3,y=3000,pch=c(15,15),col=c('blue',reds2),legend=c('Pre-Mining','Post-Mining'),cex=1.5)
+    
+    #OldEI
+    par(mar=c(0,0,0,0))
+    ei.lims <- c(-2,5)
+    ei.cols <- colorRampPalette(c('tan2','tan4','cyan','blue','green','green'))
+    persp3D(x=x, y=y,z=old.m,col=c('gray30'),lighting=T,colkey=list(plot=FALSE),theta=theta,phi=phi,
+            scale = FALSE, shade = 1,clab='Elevation (m)',axes=F,zlim=zlims,box=F,
+            ticktype='detailed',xlab='North (m)',ylab='East (m)',zlab='Elev (m)',inttype=2,expand=2)
+    persp3D(x=x, y=y,z=old.m.na,col=c(ei.cols(200)),colvar = old.ei,NAcols=bord,
+            colkey=list(side=4,line.clab=1,dist=l.dist,width=0.75,length=0.5,mgp=c(2,0.6,0)),
+            add=T,clim=ei.lims,zlim=zlims,box=F,NAcol=bord,shade=shade,lphi=lphi,ltheta=ltheta,
+            scale = FALSE,clab='Log EI',expand=2,
+            inttype=2)
+    
+    
+    #NewEI
+    #Shorten the color ramp 
+    new.ei[new.ei < -2] <- -2
+    
+    persp3D(x=x, y=y,z=new.m,col=c('gray30'),lighting=T,colkey=list(plot=FALSE),theta=theta,phi=phi,
+                scale = FALSE, shade = 1,clab='Elevation (m)',axes=F,zlim=zlims,box=F,
+                ticktype='detailed',xlab='North (m)',ylab='East (m)',zlab='Elev (m)',inttype=2,expand=2)
+    persp3D(x=x, y=y,z=new.m.na,col=c(ei.cols(200)),colvar=new.ei,NAcol=bord,
+            colkey=list(plot=F),add=T,zlim=zlims,box=F,shade=shade,lphi=lphi,ltheta=ltheta,
+            scale = FALSE,clab='Slope (m/m)',expand=2,inttype=2,clims=ei.lims)
+    
+    
+    
+    par(mar=hist.mar)
+    hist(old.ei,breaks=seq(-2.1,6,length.out=100),col='blue',ylim=c(0,6100),
+      xlab='Energy Index',ylab='Frequency',main='',xaxt='n')
+    axis(1,at=c(-1,1,3,5,7),labels=c(expression(10^-1),expression(10^1),expression(10^3),expression(10^5),expression(10^7)))
+    hist(new.ei, breaks=seq(-2.1,6,length.out=100),xlim=c(0,7.1),col=reds2,add=T,density=40)
+    
+  
+  dev.off()
+  
+}
+
+for(i in 1:length(sites)){
+  print(sites[i])
+  filename = paste0('Figures2018/',sites[i],'_3D_4_indices.png')
+  
+  if(!file.exists(filename)){
+  super_plotter(all.list[[i]],
+                filename)
+  }
+}
+```
+
+
+## Draping zones over DEM
+
+```{r}
+
+#Drape function
+
+drape <- function(site = 'WhiteRef',
+                  filename = filename){
+  
+  stack <- all.list[[site]]
+  
+  newfac <- stack[[9]]
+  oldfac <- stack[[10]]
+  newdem <- stack[[1]]
+  olddem <- stack[[4]]
+  
+
+  
+  if(grepl('Ref',site)){
+    type = 'Unmined'
+    site = gsub('Ref','',site)
+
+  }else {
+  type = 'Mined'
+  }
+  
+  if(site == 'WhiteRef'){
+    site = 'WhiteOak'
+  }
+  
+  sa.new <- sa.breaks %>% 
+    filter(Site == site,
+           Type == type,
+           Data.Source == 'Current')
+  
+
+  sa.old <- sa.breaks %>% 
+      filter(Site == site,
+           Type==type,
+           Data.Source == 'Historic')
+
+  
+  newzones <- cut(newfac,breaks=c(0,sa.new$value/10,maxValue(newfac))) %>%
+    as.matrix(.) %>% as.integer()
+  
+  
+  oldzones <- cut(oldfac,breaks=c(0,sa.old$value/10,maxValue(oldfac))) %>%
+    as.matrix(.) %>% as.integer()
+  
+  zlims <- lim(olddem,newdem)
+
+  zone.cols <- rev(RColorBrewer::brewer.pal(4,'BrBG'))
+   #OldDEM
+  l.dist <- -0.05
+  theta <- -90.5
+  phi <- 45
+  shade=.65
+  lphi=0
+  ltheta=-135
+  
+  old.m.na <- as.matrix(olddem)
+  new.m.na <- as.matrix(newdem)
+  olddem[is.na(olddem)] <- minValue(olddem)-1
+  newdem[is.na(newdem)] <- minValue(newdem)-1
+  old.m <- as.matrix(olddem)
+  new.m <- as.matrix(newdem)
+  x <- 1:nrow(old.m)*10
+  y <- 1:ncol(old.m)*10
+  
+  png(filename=filename,width=9,height=4,units='in',res=300)
+    par(mar=c(0,0,0,0),mgp=c(1.8,0.5,0),cex=1.5,cex.lab=1.5,cex.axis=1.3)
+    
+    mx1 <- matrix(c(1,1,1,2,2,2,3,3),1,8,byrow=T)
+    layout(mx1)
+    
+    ## Old Zones, Top Left
+    persp3D(x=x, y=y,z=old.m,col=c('gray30'),lighting=T,colkey=list(plot=FALSE),theta=theta,phi=phi,
+            scale = FALSE, shade = 1,clab='Elev. (m)',axes=F,zlim=zlims,box=F,
+            ticktype='detailed',xlab='North (m)',ylab='East (m)',zlab='Elev (m)',inttype=2,expand=2)
+    
+    persp3D(x=x, y=y,z=old.m.na,col=zone.cols,
+            colkey=list(side=4,line.clab=1,dist=l.dist,width=0.75,length=0.5,mgp=c(2,0.6,0),at=1:4),
+            lighting=F,add=T,zlim=zlims,box=F,
+            scale = FALSE, shade = 0.6,clab='Zone',expand=2,
+            inttype=2,colvar=oldzones)
+    
+    #New zones
+    persp3D(x=x, y=y,z=new.m,col=c('gray30'),lighting=T,colkey=list(plot=FALSE),theta=theta,phi=phi,
+            scale = FALSE, shade = 1,clab='Elev. (m)',axes=F,zlim=zlims,box=F,
+            ticktype='detailed',xlab='North (m)',ylab='East (m)',zlab='Elev (m)',inttype=2,expand=2)
+    
+    persp3D(x=x, y=y,z=new.m.na,col=zone.cols,
+            colkey=list(plot=F),
+            lighting=F,add=T,zlim=zlims,box=F,
+            scale = FALSE, shade = 0.6,clab='Zone',expand=2,
+            inttype=2,colvar=newzones)
+    
+    
+    ## Count histogram
+    
+    par(mar=c(3,4,3,1))
+    hist(oldzones,col='blue',
+      xlab='Process Zones',
+      ylab=expression(paste('Area (',km^2,')')),
+      main='',xaxt='n',yaxt='n')
+    axis(1,at=c(0,5,10),padj=.5)
+    axis(2,at=c(0,10000,20000,30000,40000),labels=c(0:4))
+    hist(newzones,col=reds2,
+      xlab='Process Zones',ylab='Frequency',main='',xaxt='n',density=40,add=T)
+    
+    legend(x=2.2,y=30000,pch=c(15,15),col=c('gray20',reds2),legend=c('Pre-Mining','Post-Mining'))
+  dev.off()
+}
+
+
+for(i in 1:length(sites)){
+  print(sites[i])
+  filename = paste0('Figures2018/',sites[i],'Zone_Drape.png')
+  
+  if(!file.exists(filename)){
+  drape(site = sites[i],
+                filename)
+  }
+}
+```
+
+
+## Distribution of process zones by site
+
+```{r}
+
+sa.break.wide <- sa.breaks %>%
+  rename(Watershed=Site) %>%
+  group_by(Watershed,Type,Data.Source) %>%
+  nest() %>%
+  rename(break.data=data)
+
+
+sa.cutter <- function(x,y){
+  df <- x %>%
+    mutate(zones=cut(x$area.m2,breaks=c(0,y$value,max(x$area.m2)),
+                               labels=c('1','2','3','4')))
+  return(df)
+}
+
+
+sa.zones <- long.df %>%
+  dplyr::filter(fdr.type=='f.inf') %>%
+  dplyr::filter(Data=='UAA') %>%
+  select(Site,UAA=value,Watershed,Type,Data.Source) %>%
+  mutate(area.m2 = round(UAA*10,2)) %>%
+  group_by(Watershed,Type,Data.Source) %>%
+  nest() %>%
+  left_join(sa.break.wide,by=c('Watershed','Type','Data.Source')) %>%
+  mutate(cut.df = map2(data,break.data,sa.cutter)) %>%
+  unnest(cut.df) %>%
+  ungroup() %>%
+  group_by(Watershed,Type,Data.Source,zones)%>%
+  summarize(area.km2 = n()/10000) %>%
+  ungroup()
+
+
+sa.zones %>%
+  ggplot(aes(x=zones,y=area.km2,fill=interaction(Data.Source,Type))) + 
+  geom_bar(stat='identity',position='dodge') + 
+  facet_grid(Type~Watershed) + 
+  scale_fill_manual(name='Data Source',values=c('red','blue','Orange3','Purple4')) + 
+  theme(legend.position='top',legend.direction='horizontal')
+```
+
+# Table of stats by zone
+
+```{r}
+elev <- long.df %>%
+  filter(fdr.type == 'None',
+         Data == 'Elev') %>%
+  select(index,Site,Elev = value,Watershed,Type,Data,Data.Source) 
+
+
+sa.zones_stats <- long.df %>%
+  dplyr::filter(fdr.type =='f.inf') %>%
+  select(index,Site,value,Watershed,Type,Data,Data.Source) %>%
+  pivot_wider(names_from = Data) %>%
+  left_join(elev) %>%
+  mutate(area.m2 = round(UAA*10,2)) %>%
+  group_by(Watershed,Type,Data.Source) %>%
+  nest() %>%
+  left_join(sa.break.wide,by=c('Watershed','Type','Data.Source')) %>%
+  mutate(cut.df = map2(data,break.data,sa.cutter)) %>%
+  unnest(cut.df) %>%
+  ungroup() %>%
+  group_by(Type,Data.Source,zones) %>%
+  summarize(area.km2 = n()/10000,
+            mean_elev = mean(Elev),
+            mean_slope = mean(Slope)) %>%
+  ungroup()
+  
+
+write_csv(sa.zones_stats,'Figures2018/zonal_stats_collapse.csv')
+```
+
+
+
+# Statistical tests 
+
+```{r}
+
+
+s.uaa.wide <- long.df %>%
+  dplyr::filter(fdr.type=='f.inf' | fdr.type=='None') %>%
+  select(-fdr.type,-Key,-shed.type,-elev.data) %>%
+  spread(key=Data,value=value)
+
+elev.wide <- long.df %>%
+  dplyr::filter(fdr.type=='None') %>%
+  filter(shed.type == 'old') %>% #Only looking at elevation profile changes with old watershed outline 
+  select(-fdr.type,-Key,-shed.type) %>%
+  spread(key=Data,value=value) %>%
+  mutate(Data.Source=ifelse(elev.data=='New','Current','Historic')) %>%
+  select(-elev.data)
+
+all.dat <- left_join(s.uaa.wide,elev.wide,                 by=c('index','Site','Data.Source','Type','Watershed'))
+
+df <- all.dat 
+ks.func <- function(df,column) {
+  wider <- df %>%
+    spread(key=Data.Source,value=!!column)
+  ks.mod <- ks.test(wider$Historic,wider$Current) %>%
+    glance(.) %>%
+    mutate(Source=column)
+  return(ks.mod)
+}
+
+column = quo(Elev)
+
+ks.tester <- function(df,column='Elev'){
+  all.dat %>%
+    group_by(Watershed,Type) %>%
+    nest()  %>%
+    mutate(ks.mods = purrr::map(data,ks.func,column)) %>%
+    unnest(ks.mods) %>%
+    dplyr::select(-data,-alternative) %>%
+    return(.)
+}
+
+elev.ks <- ks.tester(all.dat,column='Elev')
+slope.ks <- ks.tester(all.dat,column='Slope')
+uaa.ks <- ks.tester(all.dat,column='UAA')
+
+
+all.ks <- rbind(elev.ks,slope.ks,uaa.ks) 
+
+write_csv(all.ks,path='Figures2018/kstests.csv')
+
+```
+
+
+
+# Supplemental informatino
+
+
+# Supplement way too much detail
+
+## Check for differences between flow direction algorithm (f8 or f.infinity)
+
+### Flow direction differnces in Uplsope Accumulated Area (UAA) for reference sites
+```{r, fig.width=10,fig.height=6,eval=F}
+
+load('UAA.E.Slope.Ref.RData')
+load('ras.stack.ref.RData')
+load('Long.DF.RData')
+
+
+
+#Elevation is not impacted. 
+fdr.diff <- long.df %>%
+  filter(Data != 'Elev') %>% 
+  select(Watershed,Site,Data,Data.Source,fdr.type,value,index,Type) %>%
+  spread(key=fdr.type,value=value) %>%
+  group_by(Watershed,Data,Data.Source) %>%
+  #Account for the difference in pixel counting methods by dividng f.inf by 10 for UAA
+  mutate(f.inf.cor=ifelse(Data == 'UAA',f.inf/10,f.inf)) %>%
+  mutate(fdr.dif=f.8-f.inf) %>%
+  #Filter out errors where watershed sizes differ giving very large FDR differences
+  filter(fdr.dif > -500 & fdr.dif < 500) %>%
+  ungroup(.) 
+
+fdr.diff %>%
+  filter(Data == 'UAA') %>%
+ggplot(.,aes(x=fdr.dif,color=Data.Source)) + stat_density(geom='line',size=1.2) +
+  facet_wrap(~Watershed + Type,scales='fixed') + 
+  xlab('Flow Accumulation Difference in m2 (F.8-F.Inf)') + 
+  theme(legend.position=c(.8,.15)) +
+  scale_color_manual(values=c('#762a83','#1b7837','#b2182b','#2166ac'))
+
+
+```
+
+
+
+
+### Flow Direction Differences in Slope
+```{r, fig.width=10,fig.height=6,eval=F}
+
+fdr.diff %>%
+  filter(Data == 'Slope') %>%
+ggplot(.,aes(x=fdr.dif,color=Data.Source)) + stat_density(geom='line',size=1.2) +
+  facet_wrap(~Watershed + Type,scales='fixed') + 
+  xlab('Slope in m/m (F.8-F.Inf)') + 
+  theme(legend.position=c(.8,.2)) +
+  scale_color_manual(values=c('#762a83','#1b7837','#b2182b','#2166ac'))
+
+```
+
+
