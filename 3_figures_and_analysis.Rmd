@@ -1399,13 +1399,13 @@ sa.zones_stats <- long.df %>%
   mutate(cut.df = map2(data,break.data,sa.cutter)) %>%
   unnest(cut.df) %>%
   ungroup() %>%
-  group_by(Type,Data.Source,zones) %>%
+  group_by(Watershed, Type,Data.Source,zones) %>%
   summarize(area.km2 = n()/10000,
             mean_elev = mean(Elev),
             mean_slope = mean(Slope)) %>%
   ungroup()
   
-
+sa.zones_stats
 write_csv(sa.zones_stats,'Figures2018/zonal_stats_collapse.csv')
 ```
 
