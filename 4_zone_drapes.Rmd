@@ -1,0 +1,31 @@
+---
+title: "SI Figure 4 - Process domains" 
+author: "Matthew Ross"
+date: "8/21/2020"
+output: pdf_document
+classoption: landscape
+---
+
+Four process domains based on slope-area plots identified geographically on DEM of
+unmined and MTM-landscape at all nine study sites not shown in paper. 
+
+Figures below include abbreviated site names and (watershed area in $km^2$)
+
+
+```{r, eval = T, echo = F, out.width = "800px", cache = F}
+
+
+
+files = list.files('Figures2018/3d_drape',full.names=T) 
+
+
+#remove spruce (in paper already)
+files = files[-7]
+
+
+knitr::include_graphics(files)
+
+
+```
+
+

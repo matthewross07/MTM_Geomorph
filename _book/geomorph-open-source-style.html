@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="" xml:lang="">
+<head>
+
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <title>5 Geomorph open source style | Methods for: Identifying geomorphic process domains in synthetic landscapes of West Virginia, USA</title>
+  <meta name="description" content="5 Geomorph open source style | Methods for: Identifying geomorphic process domains in synthetic landscapes of West Virginia, USA" />
+  <meta name="generator" content="bookdown 0.20 and GitBook 2.6.7" />
+
+  <meta property="og:title" content="5 Geomorph open source style | Methods for: Identifying geomorphic process domains in synthetic landscapes of West Virginia, USA" />
+  <meta property="og:type" content="book" />
+  
+  
+  
+  
+
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="5 Geomorph open source style | Methods for: Identifying geomorphic process domains in synthetic landscapes of West Virginia, USA" />
+  
+  
+  
+
+<meta name="author" content="Dr. Matthew Ross and Dr. Kristin Jaeger" />
+<meta name="author" content="matt.ross(at)colostate.edu" />
+
+
+<meta name="date" content="2020-07-31" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+  
+  
+<link rel="prev" href="delineate-watersheds-for-analysis.html"/>
+<link rel="next" href="raw-site-summaries.html"/>
+<script src="libs/jquery-2.2.3/jquery.min.js"></script>
+<link href="libs/gitbook-2.6.7/css/style.css" rel="stylesheet" />
+<link href="libs/gitbook-2.6.7/css/plugin-table.css" rel="stylesheet" />
+<link href="libs/gitbook-2.6.7/css/plugin-bookdown.css" rel="stylesheet" />
+<link href="libs/gitbook-2.6.7/css/plugin-highlight.css" rel="stylesheet" />
+<link href="libs/gitbook-2.6.7/css/plugin-search.css" rel="stylesheet" />
+<link href="libs/gitbook-2.6.7/css/plugin-fontsettings.css" rel="stylesheet" />
+<link href="libs/gitbook-2.6.7/css/plugin-clipboard.css" rel="stylesheet" />
+
+
+
+
+
+
+
+
+
+<script src="libs/accessible-code-block-0.0.1/empty-anchor.js"></script>
+
+
+<style type="text/css">
+code.sourceCode > span { display: inline-block; line-height: 1.25; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode { white-space: pre; position: relative; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+code.sourceCode { white-space: pre-wrap; }
+code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+    color: #aaaaaa;
+  }
+pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+code span.at { color: #7d9029; } /* Attribute */
+code span.bn { color: #40a070; } /* BaseN */
+code span.bu { } /* BuiltIn */
+code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+code span.ch { color: #4070a0; } /* Char */
+code span.cn { color: #880000; } /* Constant */
+code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+code span.dt { color: #902000; } /* DataType */
+code span.dv { color: #40a070; } /* DecVal */
+code span.er { color: #ff0000; font-weight: bold; } /* Error */
+code span.ex { } /* Extension */
+code span.fl { color: #40a070; } /* Float */
+code span.fu { color: #06287e; } /* Function */
+code span.im { } /* Import */
+code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+code span.op { color: #666666; } /* Operator */
+code span.ot { color: #007020; } /* Other */
+code span.pp { color: #bc7a00; } /* Preprocessor */
+code span.sc { color: #4070a0; } /* SpecialChar */
+code span.ss { color: #bb6688; } /* SpecialString */
+code span.st { color: #4070a0; } /* String */
+code span.va { color: #19177c; } /* Variable */
+code span.vs { color: #4070a0; } /* VerbatimString */
+code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+</style>
+
+</head>
+
+<body>
+
+
+
+  <div class="book without-animation with-summary font-size-2 font-family-1" data-basepath=".">
+
+    <div class="book-summary">
+      <nav role="navigation">
+
+<ul class="summary">
+<li class="chapter" data-level="1" data-path="taudem.html"><a href="taudem.html"><i class="fa fa-check"></i><b>1</b> TauDEM</a><ul>
+<li class="chapter" data-level="1.1" data-path="taudem.html"><a href="taudem.html#pit-remove"><i class="fa fa-check"></i><b>1.1</b> Pit remove</a></li>
+<li class="chapter" data-level="1.2" data-path="taudem.html"><a href="taudem.html#d8"><i class="fa fa-check"></i><b>1.2</b> D8</a><ul>
+<li class="chapter" data-level="1.2.1" data-path="taudem.html"><a href="taudem.html#flow-direction-with-slope-and-flow-direction"><i class="fa fa-check"></i><b>1.2.1</b> Flow direction with slope and flow direction</a></li>
+<li class="chapter" data-level="1.2.2" data-path="taudem.html"><a href="taudem.html#flow-accumulation"><i class="fa fa-check"></i><b>1.2.2</b> Flow accumulation</a></li>
+</ul></li>
+<li class="chapter" data-level="1.3" data-path="taudem.html"><a href="taudem.html#d-infinity"><i class="fa fa-check"></i><b>1.3</b> D-Infinity</a><ul>
+<li class="chapter" data-level="1.3.1" data-path="taudem.html"><a href="taudem.html#flowdir"><i class="fa fa-check"></i><b>1.3.1</b> Flowdir</a></li>
+<li class="chapter" data-level="1.3.2" data-path="taudem.html"><a href="taudem.html#flow-accumulation-1"><i class="fa fa-check"></i><b>1.3.2</b> Flow accumulation</a></li>
+</ul></li>
+<li class="chapter" data-level="1.4" data-path="taudem.html"><a href="taudem.html#uaa-analysis"><i class="fa fa-check"></i><b>1.4</b> UAA analysis</a><ul>
+<li class="chapter" data-level="1.4.1" data-path="taudem.html"><a href="taudem.html#threshold-1000-pixels-0.1-km2"><i class="fa fa-check"></i><b>1.4.1</b> Threshold 1000 pixels = 0.1 km2</a></li>
+</ul></li>
+</ul></li>
+<li class="chapter" data-level="2" data-path="identifying-heavily-mined-watersheds.html"><a href="identifying-heavily-mined-watersheds.html"><i class="fa fa-check"></i><b>2</b> Identifying heavily mined watersheds</a><ul>
+<li class="chapter" data-level="2.1" data-path="identifying-heavily-mined-watersheds.html"><a href="identifying-heavily-mined-watersheds.html#project-outlets-with-same-projection-as-rasters"><i class="fa fa-check"></i><b>2.1</b> Project outlets with same projection as rasters</a><ul>
+<li class="chapter" data-level="2.1.1" data-path="identifying-heavily-mined-watersheds.html"><a href="identifying-heavily-mined-watersheds.html#convert-river-network-into-shapefile"><i class="fa fa-check"></i><b>2.1.1</b> Convert river network into shapefile</a></li>
+</ul></li>
+</ul></li>
+<li class="chapter" data-level="3" data-path="section.html"><a href="section.html"><i class="fa fa-check"></i><b>3</b> </a></li>
+<li class="chapter" data-level="4" data-path="delineate-watersheds-for-analysis.html"><a href="delineate-watersheds-for-analysis.html"><i class="fa fa-check"></i><b>4</b> Delineate watersheds for analysis</a><ul>
+<li class="chapter" data-level="4.1" data-path="delineate-watersheds-for-analysis.html"><a href="delineate-watersheds-for-analysis.html#stack-and-cutup-rasters-to-smaller-extents-for-later-analysis-in-r."><i class="fa fa-check"></i><b>4.1</b> Stack and cutup rasters to smaller extents for later analysis in r.</a></li>
+<li class="chapter" data-level="4.2" data-path="delineate-watersheds-for-analysis.html"><a href="delineate-watersheds-for-analysis.html#convert-raster-data-to-data-frames"><i class="fa fa-check"></i><b>4.2</b> Convert raster data to data frames</a></li>
+</ul></li>
+<li class="chapter" data-level="5" data-path="geomorph-open-source-style.html"><a href="geomorph-open-source-style.html"><i class="fa fa-check"></i><b>5</b> Geomorph open source style</a><ul>
+<li class="chapter" data-level="5.0.1" data-path="geomorph-open-source-style.html"><a href="geomorph-open-source-style.html#convert-data-to-long-format"><i class="fa fa-check"></i><b>5.0.1</b> Convert data to long format</a></li>
+<li class="chapter" data-level="5.1" data-path="geomorph-open-source-style.html"><a href="geomorph-open-source-style.html#figure-3.-study-map"><i class="fa fa-check"></i><b>5.1</b> Figure 3. Study Map</a></li>
+</ul></li>
+<li class="chapter" data-level="6" data-path="raw-site-summaries.html"><a href="raw-site-summaries.html"><i class="fa fa-check"></i><b>6</b> Raw site summaries</a><ul>
+<li class="chapter" data-level="6.1" data-path="raw-site-summaries.html"><a href="raw-site-summaries.html#percent-mining"><i class="fa fa-check"></i><b>6.1</b> Percent mining</a><ul>
+<li class="chapter" data-level="6.1.1" data-path="raw-site-summaries.html"><a href="raw-site-summaries.html#elevation"><i class="fa fa-check"></i><b>6.1.1</b> Elevation</a></li>
+<li class="chapter" data-level="6.1.2" data-path="raw-site-summaries.html"><a href="raw-site-summaries.html#slope"><i class="fa fa-check"></i><b>6.1.2</b> Slope</a></li>
+<li class="chapter" data-level="6.1.3" data-path="raw-site-summaries.html"><a href="raw-site-summaries.html#drainage-density"><i class="fa fa-check"></i><b>6.1.3</b> Drainage density</a></li>
+</ul></li>
+</ul></li>
+<li class="chapter" data-level="7" data-path="process-zones-with-slope-area-and-cumulative-area-distribution.html"><a href="process-zones-with-slope-area-and-cumulative-area-distribution.html"><i class="fa fa-check"></i><b>7</b> Process Zones with Slope Area and Cumulative Area Distribution</a><ul>
+<li class="chapter" data-level="7.1" data-path="process-zones-with-slope-area-and-cumulative-area-distribution.html"><a href="process-zones-with-slope-area-and-cumulative-area-distribution.html#uaa-slope-cutting"><i class="fa fa-check"></i><b>7.1</b> UAA Slope Cutting</a><ul>
+<li class="chapter" data-level="7.1.1" data-path="process-zones-with-slope-area-and-cumulative-area-distribution.html"><a href="process-zones-with-slope-area-and-cumulative-area-distribution.html#slope-area-standard-deviation-plots"><i class="fa fa-check"></i><b>7.1.1</b> Slope Area Standard Deviation Plots</a></li>
+</ul></li>
+<li class="chapter" data-level="7.2" data-path="process-zones-with-slope-area-and-cumulative-area-distribution.html"><a href="process-zones-with-slope-area-and-cumulative-area-distribution.html#sa-break-id"><i class="fa fa-check"></i><b>7.2</b> SA Break ID</a><ul>
+<li class="chapter" data-level="7.2.1" data-path="process-zones-with-slope-area-and-cumulative-area-distribution.html"><a href="process-zones-with-slope-area-and-cumulative-area-distribution.html#region-slopes"><i class="fa fa-check"></i><b>7.2.1</b> Region slopes</a></li>
+</ul></li>
+<li class="chapter" data-level="7.3" data-path="process-zones-with-slope-area-and-cumulative-area-distribution.html"><a href="process-zones-with-slope-area-and-cumulative-area-distribution.html#final-sa-plots"><i class="fa fa-check"></i><b>7.3</b> FInal SA Plots</a></li>
+</ul></li>
+<li class="chapter" data-level="8" data-path="cumulative-area-distribution.html"><a href="cumulative-area-distribution.html"><i class="fa fa-check"></i><b>8</b> Cumulative area distribution</a><ul>
+<li class="chapter" data-level="8.1" data-path="cumulative-area-distribution.html"><a href="cumulative-area-distribution.html#cad-breaks"><i class="fa fa-check"></i><b>8.1</b> Cad breaks</a></li>
+<li class="chapter" data-level="8.2" data-path="cumulative-area-distribution.html"><a href="cumulative-area-distribution.html#uaa-density"><i class="fa fa-check"></i><b>8.2</b> UAA Density</a></li>
+</ul></li>
+<li class="chapter" data-level="9" data-path="energy-index.html"><a href="energy-index.html"><i class="fa fa-check"></i><b>9</b> Energy Index</a><ul>
+<li class="chapter" data-level="9.1" data-path="energy-index.html"><a href="energy-index.html#figure-6-ei-plots"><i class="fa fa-check"></i><b>9.1</b> Figure 6 EI Plots</a></li>
+</ul></li>
+<li class="chapter" data-level="10" data-path="d-plots.html"><a href="d-plots.html"><i class="fa fa-check"></i><b>10</b> 3D plots</a><ul>
+<li class="chapter" data-level="10.1" data-path="d-plots.html"><a href="d-plots.html#draping-zones-over-dem"><i class="fa fa-check"></i><b>10.1</b> Draping zones over DEM</a></li>
+<li class="chapter" data-level="10.2" data-path="d-plots.html"><a href="d-plots.html#distribution-of-process-zones-by-site"><i class="fa fa-check"></i><b>10.2</b> Distribution of process zones by site</a></li>
+</ul></li>
+<li class="chapter" data-level="11" data-path="supplemental-informatino.html"><a href="supplemental-informatino.html"><i class="fa fa-check"></i><b>11</b> Supplemental informatino</a></li>
+<li class="chapter" data-level="12" data-path="supplement-way-too-much-detail.html"><a href="supplement-way-too-much-detail.html"><i class="fa fa-check"></i><b>12</b> Supplement way too much detail</a><ul>
+<li class="chapter" data-level="12.1" data-path="supplement-way-too-much-detail.html"><a href="supplement-way-too-much-detail.html#check-for-differences-between-flow-direction-algorithm-f8-or-f.infinity"><i class="fa fa-check"></i><b>12.1</b> Check for differences between flow direction algorithm (f8 or f.infinity)</a><ul>
+<li class="chapter" data-level="12.1.1" data-path="supplement-way-too-much-detail.html"><a href="supplement-way-too-much-detail.html#flow-direction-differnces-in-uplsope-accumulated-area-uaa-for-reference-sites"><i class="fa fa-check"></i><b>12.1.1</b> Flow direction differnces in Uplsope Accumulated Area (UAA) for reference sites</a></li>
+</ul></li>
+</ul></li>
+</ul>
+
+      </nav>
+    </div>
+
+    <div class="book-body">
+      <div class="body-inner">
+        <div class="book-header" role="navigation">
+          <h1>
+            <i class="fa fa-circle-o-notch fa-spin"></i><a href="./">Methods for: Identifying geomorphic process domains in synthetic landscapes of West Virginia, USA</a>
+          </h1>
+        </div>
+
+        <div class="page-wrapper" tabindex="-1" role="main">
+          <div class="page-inner">
+
+            <section class="normal" id="section-">
+<div id="geomorph-open-source-style" class="section level1">
+<h1><span class="header-section-number">5</span> Geomorph open source style</h1>
+<div class="sourceCode" id="cb13"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb13-1"><a href="geomorph-open-source-style.html#cb13-1"></a>knitr<span class="op">::</span>opts_chunk<span class="op">$</span><span class="kw">set</span>(<span class="dt">eval =</span> F)</span></code></pre></div>
+<div id="convert-data-to-long-format" class="section level3">
+<h3><span class="header-section-number">5.0.1</span> Convert data to long format</h3>
+<p>In the following code chunk I load in the data convert it into long data and
+make sensible column names. I then save this file so I don’t have to perform
+the operations again.</p>
+<div class="sourceCode" id="cb14"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb14-1"><a href="geomorph-open-source-style.html#cb14-1"></a><span class="co">#Add an index column</span></span>
+<span id="cb14-2"><a href="geomorph-open-source-style.html#cb14-2"></a>stack.df<span class="op">$</span>index &lt;-<span class="st"> </span><span class="dv">1</span><span class="op">:</span><span class="kw">nrow</span>(stack.df)</span>
+<span id="cb14-3"><a href="geomorph-open-source-style.html#cb14-3"></a></span>
+<span id="cb14-4"><a href="geomorph-open-source-style.html#cb14-4"></a><span class="co">#Gather data into one long data frame</span></span>
+<span id="cb14-5"><a href="geomorph-open-source-style.html#cb14-5"></a>long.df &lt;-<span class="st"> </span>stack.df <span class="op">%&gt;%</span></span>
+<span id="cb14-6"><a href="geomorph-open-source-style.html#cb14-6"></a><span class="st">  </span><span class="kw">gather</span>(Key,value,<span class="op">-</span>Site,<span class="op">-</span>index,<span class="dt">na.rm=</span>T)  <span class="op">%&gt;%</span></span>
+<span id="cb14-7"><a href="geomorph-open-source-style.html#cb14-7"></a><span class="st">  </span><span class="co">#Fix whiteoak reference name (currently labeld just white)</span></span>
+<span id="cb14-8"><a href="geomorph-open-source-style.html#cb14-8"></a><span class="st">  </span><span class="kw">mutate</span>(<span class="dt">Site=</span><span class="kw">ifelse</span>(Site<span class="op">==</span><span class="st">&#39;WhiteRef&#39;</span>,<span class="st">&#39;WhiteOakRef&#39;</span>,Site)) <span class="op">%&gt;%</span></span>
+<span id="cb14-9"><a href="geomorph-open-source-style.html#cb14-9"></a><span class="st">  </span><span class="co">#Create a column with watershed delineation data (is it old elevation shed or new elevation shed?)</span></span>
+<span id="cb14-10"><a href="geomorph-open-source-style.html#cb14-10"></a><span class="st">  </span><span class="co">#This information is the last word in the key column (new.e.new = new elevation profile with new watershed boundary, old.e.new = old elevation profile with new watershed boundary)</span></span>
+<span id="cb14-11"><a href="geomorph-open-source-style.html#cb14-11"></a><span class="st">  </span><span class="kw">mutate</span>(<span class="dt">shed.type=</span> <span class="kw">ifelse</span>(<span class="kw">grepl</span>(<span class="st">&#39;</span><span class="ch">\\</span><span class="st">.&#39;</span>,Key),<span class="kw">str_split_fixed</span>(Key,<span class="st">&#39;</span><span class="ch">\\</span><span class="st">.&#39;</span>,<span class="dt">n=</span><span class="dv">3</span>)[,<span class="dv">3</span>],<span class="ot">NA</span>)) <span class="op">%&gt;%</span></span>
+<span id="cb14-12"><a href="geomorph-open-source-style.html#cb14-12"></a><span class="st">  </span><span class="kw">mutate</span>(<span class="dt">elev.data=</span> <span class="kw">ifelse</span>(<span class="kw">grepl</span>(<span class="st">&#39;</span><span class="ch">\\</span><span class="st">.&#39;</span>,Key),<span class="kw">str_split_fixed</span>(Key,<span class="st">&#39;</span><span class="ch">\\</span><span class="st">.&#39;</span>,<span class="dt">n=</span><span class="dv">3</span>)[,<span class="dv">1</span>],<span class="ot">NA</span>)) <span class="op">%&gt;%</span></span>
+<span id="cb14-13"><a href="geomorph-open-source-style.html#cb14-13"></a><span class="st">  </span><span class="co">#Column to show what flow direction algorithm was used for calcuation</span></span>
+<span id="cb14-14"><a href="geomorph-open-source-style.html#cb14-14"></a><span class="st">  </span><span class="kw">mutate</span>(<span class="dt">fdr.type =</span> <span class="kw">ifelse</span>(<span class="kw">grepl</span>(<span class="st">&#39;8&#39;</span>,Key),<span class="st">&#39;f.8&#39;</span>,<span class="st">&#39;f.inf&#39;</span>)) <span class="op">%&gt;%</span></span>
+<span id="cb14-15"><a href="geomorph-open-source-style.html#cb14-15"></a><span class="st">  </span><span class="co">#Elevation does not have a flow direction associated with it</span></span>
+<span id="cb14-16"><a href="geomorph-open-source-style.html#cb14-16"></a><span class="st">  </span><span class="kw">mutate</span>(<span class="dt">fdr.type =</span> <span class="kw">ifelse</span>(<span class="op">!</span><span class="kw">is.na</span>(shed.type),<span class="st">&#39;None&#39;</span>,fdr.type)) <span class="op">%&gt;%</span></span>
+<span id="cb14-17"><a href="geomorph-open-source-style.html#cb14-17"></a><span class="st">  </span><span class="co">#What kind of data is in the column? UAA Slope or Elev?</span></span>
+<span id="cb14-18"><a href="geomorph-open-source-style.html#cb14-18"></a><span class="st">  </span><span class="kw">mutate</span>(<span class="dt">Data=</span><span class="kw">ifelse</span>(<span class="kw">grepl</span>(<span class="st">&#39;shed&#39;</span>,Key),<span class="st">&#39;UAA&#39;</span>,<span class="st">&#39;Slope&#39;</span>)) <span class="op">%&gt;%</span></span>
+<span id="cb14-19"><a href="geomorph-open-source-style.html#cb14-19"></a><span class="st">  </span><span class="kw">mutate</span>(<span class="dt">Data=</span><span class="kw">ifelse</span>(<span class="op">!</span><span class="kw">is.na</span>(shed.type),<span class="st">&#39;Elev&#39;</span>,Data)) <span class="op">%&gt;%</span></span>
+<span id="cb14-20"><a href="geomorph-open-source-style.html#cb14-20"></a><span class="st">  </span><span class="co">#Relabel &#39;new&#39; as post-mining and old as pre-mining</span></span>
+<span id="cb14-21"><a href="geomorph-open-source-style.html#cb14-21"></a><span class="st">  </span><span class="kw">mutate</span>(<span class="dt">Data.Source =</span> <span class="kw">ifelse</span>(<span class="kw">grepl</span>(<span class="st">&#39;new&#39;</span>,Key) <span class="op">&amp;</span><span class="st"> </span><span class="op">!</span><span class="kw">grepl</span>(<span class="st">&#39;Ref&#39;</span>,Site),<span class="st">&#39;Current&#39;</span>,<span class="st">&#39;Historic&#39;</span>)) <span class="op">%&gt;%</span></span>
+<span id="cb14-22"><a href="geomorph-open-source-style.html#cb14-22"></a><span class="st">  </span><span class="co">#Split sites between reference and mined</span></span>
+<span id="cb14-23"><a href="geomorph-open-source-style.html#cb14-23"></a><span class="st">  </span><span class="kw">mutate</span>(<span class="dt">Type =</span> <span class="kw">ifelse</span>(<span class="kw">grepl</span>(<span class="st">&#39;Ref&#39;</span>,Site),<span class="st">&#39;Unmined&#39;</span>,<span class="st">&#39;Mined&#39;</span>)) <span class="op">%&gt;%</span></span>
+<span id="cb14-24"><a href="geomorph-open-source-style.html#cb14-24"></a><span class="st">  </span><span class="co">#Rename treaments for reference to reflect historic dem and current dem</span></span>
+<span id="cb14-25"><a href="geomorph-open-source-style.html#cb14-25"></a><span class="st">  </span><span class="kw">mutate</span>(<span class="dt">Data.Source=</span><span class="kw">ifelse</span>(<span class="kw">grepl</span>(<span class="st">&#39;Ref&#39;</span>,Site) <span class="op">&amp;</span><span class="st"> </span><span class="kw">grepl</span>(<span class="st">&#39;new&#39;</span>,Key),<span class="st">&#39;Current&#39;</span>,Data.Source)) <span class="op">%&gt;%</span></span>
+<span id="cb14-26"><a href="geomorph-open-source-style.html#cb14-26"></a><span class="st">  </span><span class="kw">mutate</span>(<span class="dt">Data.Source=</span><span class="kw">ifelse</span>(<span class="kw">grepl</span>(<span class="st">&#39;Ref&#39;</span>,Site) <span class="op">&amp;</span><span class="st"> </span><span class="kw">grepl</span>(<span class="st">&#39;old&#39;</span>,Key),<span class="st">&#39;Historic&#39;</span>,Data.Source)) <span class="op">%&gt;%</span></span>
+<span id="cb14-27"><a href="geomorph-open-source-style.html#cb14-27"></a><span class="st">  </span><span class="co">#Make new column with huc12 watershed name</span></span>
+<span id="cb14-28"><a href="geomorph-open-source-style.html#cb14-28"></a><span class="st">  </span><span class="kw">mutate</span>(<span class="dt">Watershed =</span> <span class="kw">gsub</span>(<span class="st">&#39;Ref&#39;</span>,<span class="st">&#39;&#39;</span>,Site)) </span>
+<span id="cb14-29"><a href="geomorph-open-source-style.html#cb14-29"></a></span>
+<span id="cb14-30"><a href="geomorph-open-source-style.html#cb14-30"></a></span>
+<span id="cb14-31"><a href="geomorph-open-source-style.html#cb14-31"></a>dat.check &lt;-<span class="st"> </span>long.df <span class="op">%&gt;%</span></span>
+<span id="cb14-32"><a href="geomorph-open-source-style.html#cb14-32"></a><span class="st">  </span><span class="kw">group_by</span>(Watershed,Type,Data.Source,Site) <span class="op">%&gt;%</span></span>
+<span id="cb14-33"><a href="geomorph-open-source-style.html#cb14-33"></a><span class="st">  </span>dplyr<span class="op">::</span><span class="kw">summarize</span>(<span class="dt">length=</span><span class="kw">n</span>()) </span>
+<span id="cb14-34"><a href="geomorph-open-source-style.html#cb14-34"></a></span>
+<span id="cb14-35"><a href="geomorph-open-source-style.html#cb14-35"></a></span>
+<span id="cb14-36"><a href="geomorph-open-source-style.html#cb14-36"></a></span>
+<span id="cb14-37"><a href="geomorph-open-source-style.html#cb14-37"></a><span class="co">#save(long.df,file=&#39;data/out/Long.DF.RData&#39;)</span></span></code></pre></div>
+</div>
+<div id="figure-3.-study-map" class="section level2">
+<h2><span class="header-section-number">5.1</span> Figure 3. Study Map</h2>
+<div class="sourceCode" id="cb15"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb15-1"><a href="geomorph-open-source-style.html#cb15-1"></a><span class="kw">library</span>(sf)</span>
+<span id="cb15-2"><a href="geomorph-open-source-style.html#cb15-2"></a><span class="kw">library</span>(ggthemes)</span>
+<span id="cb15-3"><a href="geomorph-open-source-style.html#cb15-3"></a><span class="kw">library</span>(ggpubr)</span>
+<span id="cb15-4"><a href="geomorph-open-source-style.html#cb15-4"></a><span class="kw">library</span>(grid)</span>
+<span id="cb15-5"><a href="geomorph-open-source-style.html#cb15-5"></a>st_envelope =<span class="st"> </span><span class="cf">function</span>(x) <span class="kw">st_as_sfc</span>(<span class="kw">st_bbox</span>(x))</span>
+<span id="cb15-6"><a href="geomorph-open-source-style.html#cb15-6"></a></span>
+<span id="cb15-7"><a href="geomorph-open-source-style.html#cb15-7"></a><span class="kw">load</span>(<span class="st">&#39;data/out/watersheds.RData&#39;</span>)</span>
+<span id="cb15-8"><a href="geomorph-open-source-style.html#cb15-8"></a></span>
+<span id="cb15-9"><a href="geomorph-open-source-style.html#cb15-9"></a></span>
+<span id="cb15-10"><a href="geomorph-open-source-style.html#cb15-10"></a>watersheds &lt;-<span class="st"> </span><span class="kw">st_as_sf</span>(shd.shp.names,<span class="dt">crs=</span><span class="dv">26917</span>) <span class="op">%&gt;%</span></span>
+<span id="cb15-11"><a href="geomorph-open-source-style.html#cb15-11"></a><span class="st">  </span><span class="kw">mutate</span>(<span class="dt">Site =</span> <span class="kw">c</span>(<span class="st">&#39;White Oak&#39;</span>,<span class="st">&#39;White Oak&#39;</span>,<span class="st">&#39;Laurel&#39;</span>, <span class="st">&#39;Laurel&#39;</span>,<span class="st">&#39;Spruce&#39;</span>,<span class="st">&#39;Spruce&#39;</span>,<span class="st">&#39;Mud&#39;</span>,<span class="st">&#39;Ben&#39;</span>,<span class="st">&#39;Mud&#39;</span>,<span class="st">&#39;Ben&#39;</span>),</span>
+<span id="cb15-12"><a href="geomorph-open-source-style.html#cb15-12"></a>         <span class="dt">Type=</span><span class="kw">c</span>(<span class="st">&#39;Mined&#39;</span>,<span class="st">&#39;Reference&#39;</span>,<span class="st">&#39;Reference&#39;</span>,<span class="st">&#39;Mined&#39;</span>,<span class="st">&#39;Reference&#39;</span>,<span class="st">&#39;Mined&#39;</span>,<span class="st">&#39;Reference&#39;</span>,<span class="st">&#39;Reference&#39;</span>,<span class="st">&#39;Mined&#39;</span>,<span class="st">&#39;Mined&#39;</span>)) <span class="op">%&gt;%</span></span>
+<span id="cb15-13"><a href="geomorph-open-source-style.html#cb15-13"></a><span class="st">  </span><span class="kw">mutate</span>(<span class="dt">CENTROID =</span> <span class="kw">map</span>(geometry, st_centroid),</span>
+<span id="cb15-14"><a href="geomorph-open-source-style.html#cb15-14"></a>    <span class="dt">COORDS =</span> <span class="kw">map</span>(CENTROID, st_coordinates),</span>
+<span id="cb15-15"><a href="geomorph-open-source-style.html#cb15-15"></a>    <span class="dt">COORDS_X =</span> <span class="kw">map_dbl</span>(COORDS, <span class="dv">1</span>),</span>
+<span id="cb15-16"><a href="geomorph-open-source-style.html#cb15-16"></a>    <span class="dt">COORDS_Y =</span> <span class="kw">map_dbl</span>(COORDS, <span class="dv">2</span>))</span>
+<span id="cb15-17"><a href="geomorph-open-source-style.html#cb15-17"></a></span>
+<span id="cb15-18"><a href="geomorph-open-source-style.html#cb15-18"></a>boundary &lt;-<span class="st"> </span><span class="kw">st_envelope</span>(<span class="kw">st_buffer</span>(watersheds,<span class="dv">10000</span>))</span>
+<span id="cb15-19"><a href="geomorph-open-source-style.html#cb15-19"></a></span>
+<span id="cb15-20"><a href="geomorph-open-source-style.html#cb15-20"></a></span>
+<span id="cb15-21"><a href="geomorph-open-source-style.html#cb15-21"></a><span class="co">#No idea why the extent object wouldn&#39;t work. </span></span>
+<span id="cb15-22"><a href="geomorph-open-source-style.html#cb15-22"></a>e2010 &lt;-<span class="st"> </span><span class="kw">raster</span>(<span class="st">&#39;data/in/TauNew.tif&#39;</span>) <span class="op">%&gt;%</span></span>
+<span id="cb15-23"><a href="geomorph-open-source-style.html#cb15-23"></a><span class="st">  </span><span class="kw">crop</span>(.,<span class="kw">extent</span>(<span class="dv">411446</span>,<span class="dv">460186</span>,<span class="dv">4154384</span>,<span class="dv">4221224</span>)) <span class="op">%&gt;%</span></span>
+<span id="cb15-24"><a href="geomorph-open-source-style.html#cb15-24"></a><span class="st">  </span><span class="kw">aggregate</span>(.,<span class="dv">10</span>)</span>
+<span id="cb15-25"><a href="geomorph-open-source-style.html#cb15-25"></a>  </span>
+<span id="cb15-26"><a href="geomorph-open-source-style.html#cb15-26"></a></span>
+<span id="cb15-27"><a href="geomorph-open-source-style.html#cb15-27"></a>eobj &lt;-<span class="st"> </span><span class="kw">rasterToPoints</span>(e2010) <span class="op">%&gt;%</span></span>
+<span id="cb15-28"><a href="geomorph-open-source-style.html#cb15-28"></a><span class="st">  </span><span class="kw">as_tibble</span>() </span>
+<span id="cb15-29"><a href="geomorph-open-source-style.html#cb15-29"></a></span>
+<span id="cb15-30"><a href="geomorph-open-source-style.html#cb15-30"></a></span>
+<span id="cb15-31"><a href="geomorph-open-source-style.html#cb15-31"></a><span class="co">#Weird rule where fill =T makes this possible to convert to a sf object. </span></span>
+<span id="cb15-32"><a href="geomorph-open-source-style.html#cb15-32"></a>wv &lt;-<span class="st"> </span>maps<span class="op">::</span><span class="kw">map</span>(<span class="st">&#39;state&#39;</span>,<span class="dt">region=</span><span class="kw">c</span>(<span class="st">&#39;west virginia&#39;</span>),<span class="dt">fill=</span>T,<span class="dt">plot=</span>F) <span class="op">%&gt;%</span></span>
+<span id="cb15-33"><a href="geomorph-open-source-style.html#cb15-33"></a><span class="st">  </span><span class="kw">st_as_sf</span>() <span class="op">%&gt;%</span></span>
+<span id="cb15-34"><a href="geomorph-open-source-style.html#cb15-34"></a><span class="st">  </span><span class="kw">st_transform</span>(.,<span class="dv">26917</span>)</span>
+<span id="cb15-35"><a href="geomorph-open-source-style.html#cb15-35"></a></span>
+<span id="cb15-36"><a href="geomorph-open-source-style.html#cb15-36"></a></span>
+<span id="cb15-37"><a href="geomorph-open-source-style.html#cb15-37"></a></span>
+<span id="cb15-38"><a href="geomorph-open-source-style.html#cb15-38"></a>wv.sub &lt;-<span class="st"> </span>wv <span class="op">%&gt;%</span><span class="st"> </span><span class="kw">st_intersection</span>(.,<span class="kw">st_envelope</span>(boundary))</span>
+<span id="cb15-39"><a href="geomorph-open-source-style.html#cb15-39"></a></span>
+<span id="cb15-40"><a href="geomorph-open-source-style.html#cb15-40"></a>wv.inset &lt;-<span class="st"> </span><span class="kw">ggplot</span>() <span class="op">+</span><span class="st"> </span></span>
+<span id="cb15-41"><a href="geomorph-open-source-style.html#cb15-41"></a><span class="st">  </span><span class="kw">geom_sf</span>(<span class="dt">data=</span>wv) <span class="op">+</span><span class="st"> </span></span>
+<span id="cb15-42"><a href="geomorph-open-source-style.html#cb15-42"></a><span class="st">  </span><span class="kw">theme</span>(<span class="dt">panel.grid.major =</span> <span class="kw">element_line</span>(<span class="dt">color=</span><span class="st">&#39;transparent&#39;</span>)) <span class="op">+</span></span>
+<span id="cb15-43"><a href="geomorph-open-source-style.html#cb15-43"></a><span class="st">  </span><span class="kw">geom_sf</span>(<span class="dt">data=</span>wv.sub,<span class="dt">color=</span><span class="st">&#39;red&#39;</span>,<span class="dt">fill=</span><span class="ot">NA</span>,<span class="dt">size=</span><span class="dv">2</span>) <span class="op">+</span><span class="st"> </span></span>
+<span id="cb15-44"><a href="geomorph-open-source-style.html#cb15-44"></a><span class="st">   </span><span class="kw">theme</span>(<span class="dt">axis.title.x=</span><span class="kw">element_blank</span>(),</span>
+<span id="cb15-45"><a href="geomorph-open-source-style.html#cb15-45"></a>        <span class="dt">axis.text.x=</span><span class="kw">element_blank</span>(),</span>
+<span id="cb15-46"><a href="geomorph-open-source-style.html#cb15-46"></a>        <span class="dt">axis.ticks.x=</span><span class="kw">element_blank</span>(),</span>
+<span id="cb15-47"><a href="geomorph-open-source-style.html#cb15-47"></a>        <span class="dt">axis.title.y=</span><span class="kw">element_blank</span>(),</span>
+<span id="cb15-48"><a href="geomorph-open-source-style.html#cb15-48"></a>        <span class="dt">axis.text.y=</span><span class="kw">element_blank</span>(),</span>
+<span id="cb15-49"><a href="geomorph-open-source-style.html#cb15-49"></a>        <span class="dt">axis.ticks.y=</span><span class="kw">element_blank</span>(),</span>
+<span id="cb15-50"><a href="geomorph-open-source-style.html#cb15-50"></a>        <span class="dt">panel.border=</span><span class="kw">element_blank</span>())</span>
+<span id="cb15-51"><a href="geomorph-open-source-style.html#cb15-51"></a></span>
+<span id="cb15-52"><a href="geomorph-open-source-style.html#cb15-52"></a>wv.inset</span>
+<span id="cb15-53"><a href="geomorph-open-source-style.html#cb15-53"></a>wv.dem &lt;-<span class="st"> </span><span class="kw">ggplot</span>() <span class="op">+</span><span class="st"> </span></span>
+<span id="cb15-54"><a href="geomorph-open-source-style.html#cb15-54"></a><span class="st">  </span><span class="kw">geom_tile</span>(<span class="dt">data=</span>eobj,<span class="kw">aes</span>(<span class="dt">x=</span>x,<span class="dt">y=</span>y,<span class="dt">fill=</span>TauNew)) <span class="op">+</span><span class="st"> </span></span>
+<span id="cb15-55"><a href="geomorph-open-source-style.html#cb15-55"></a><span class="st">  </span><span class="kw">theme_few</span>(<span class="dt">base_size=</span><span class="dv">14</span>) <span class="op">+</span><span class="st"> </span></span>
+<span id="cb15-56"><a href="geomorph-open-source-style.html#cb15-56"></a><span class="st">  </span><span class="kw">theme</span>(<span class="dt">panel.grid.major =</span> <span class="kw">element_line</span>(<span class="dt">color=</span><span class="st">&#39;transparent&#39;</span>)) <span class="op">+</span></span>
+<span id="cb15-57"><a href="geomorph-open-source-style.html#cb15-57"></a><span class="st">  </span><span class="kw">geom_sf</span>(<span class="dt">data=</span>watersheds,<span class="kw">aes</span>(<span class="dt">color=</span>Type),<span class="dt">fill=</span><span class="ot">NA</span>,<span class="dt">size=</span><span class="dv">1</span>) <span class="op">+</span></span>
+<span id="cb15-58"><a href="geomorph-open-source-style.html#cb15-58"></a><span class="st">  </span><span class="kw">scale_color_manual</span>(<span class="dt">values=</span><span class="kw">c</span>(<span class="st">&#39;blue&#39;</span>,<span class="st">&#39;purple4&#39;</span>),<span class="dt">name=</span><span class="st">&#39;&#39;</span>,<span class="dt">guide=</span>F) <span class="op">+</span></span>
+<span id="cb15-59"><a href="geomorph-open-source-style.html#cb15-59"></a><span class="st">  </span><span class="kw">scale_fill_gradient2</span>(<span class="dt">high=</span><span class="st">&#39;blue2&#39;</span>,<span class="dt">low=</span><span class="st">&#39;red2&#39;</span>,<span class="dt">mid=</span><span class="st">&#39;gray70&#39;</span>,<span class="dt">midpoint=</span><span class="dv">600</span>,<span class="dt">name=</span><span class="st">&#39;Elev. (m)&#39;</span>)<span class="op">+</span></span>
+<span id="cb15-60"><a href="geomorph-open-source-style.html#cb15-60"></a><span class="st">  </span><span class="kw">xlab</span>(<span class="st">&#39;&#39;</span>) <span class="op">+</span><span class="st"> </span></span>
+<span id="cb15-61"><a href="geomorph-open-source-style.html#cb15-61"></a><span class="st">  </span><span class="kw">ylab</span>(<span class="st">&#39;&#39;</span>) <span class="op">+</span></span>
+<span id="cb15-62"><a href="geomorph-open-source-style.html#cb15-62"></a><span class="st">  </span><span class="kw">theme</span>(<span class="dt">legend.position=</span><span class="kw">c</span>(<span class="fl">0.85</span>,<span class="fl">0.49</span>)) <span class="op">+</span></span>
+<span id="cb15-63"><a href="geomorph-open-source-style.html#cb15-63"></a><span class="st">  </span><span class="kw">geom_text</span>(<span class="dt">data=</span>watersheds <span class="op">%&gt;%</span></span>
+<span id="cb15-64"><a href="geomorph-open-source-style.html#cb15-64"></a><span class="st">              </span><span class="kw">filter</span>(Type<span class="op">==</span><span class="st">&#39;Reference&#39;</span>),<span class="kw">aes</span>(<span class="dt">x=</span>COORDS_X,<span class="dt">y=</span>COORDS_Y,<span class="dt">label=</span>Site),<span class="dt">nudge_x=</span><span class="dv">3500</span>, <span class="dt">nudge_y=</span><span class="dv">3000</span>,<span class="dt">size=</span><span class="fl">4.5</span>)</span>
+<span id="cb15-65"><a href="geomorph-open-source-style.html#cb15-65"></a><span class="kw">getwd</span>()</span>
+<span id="cb15-66"><a href="geomorph-open-source-style.html#cb15-66"></a></span>
+<span id="cb15-67"><a href="geomorph-open-source-style.html#cb15-67"></a><span class="kw">png</span>(<span class="dt">filename=</span><span class="st">&#39;Figures2018/fig3_studymap.png&#39;</span>,<span class="dt">width=</span><span class="fl">5.9</span>,<span class="dt">height=</span><span class="fl">6.3</span>,<span class="dt">units=</span><span class="st">&#39;in&#39;</span>,<span class="dt">res=</span><span class="dv">300</span>)</span>
+<span id="cb15-68"><a href="geomorph-open-source-style.html#cb15-68"></a>vp &lt;-<span class="st"> </span><span class="kw">viewport</span>(<span class="dt">width=</span><span class="fl">0.35</span>,<span class="dt">height=</span><span class="fl">0.45</span>,<span class="dt">x=</span><span class="fl">0.72</span>,<span class="dt">y=</span><span class="fl">0.26</span>)</span>
+<span id="cb15-69"><a href="geomorph-open-source-style.html#cb15-69"></a><span class="kw">print</span>(wv.dem)</span>
+<span id="cb15-70"><a href="geomorph-open-source-style.html#cb15-70"></a><span class="kw">print</span>(wv.inset,<span class="dt">vp=</span>vp)</span>
+<span id="cb15-71"><a href="geomorph-open-source-style.html#cb15-71"></a><span class="kw">dev.off</span>()</span></code></pre></div>
+</div>
+</div>
+            </section>
+
+          </div>
+        </div>
+      </div>
+<a href="delineate-watersheds-for-analysis.html" class="navigation navigation-prev " aria-label="Previous page"><i class="fa fa-angle-left"></i></a>
+<a href="raw-site-summaries.html" class="navigation navigation-next " aria-label="Next page"><i class="fa fa-angle-right"></i></a>
+    </div>
+  </div>
+<script src="libs/gitbook-2.6.7/js/app.min.js"></script>
+<script src="libs/gitbook-2.6.7/js/lunr.js"></script>
+<script src="libs/gitbook-2.6.7/js/clipboard.min.js"></script>
+<script src="libs/gitbook-2.6.7/js/plugin-search.js"></script>
+<script src="libs/gitbook-2.6.7/js/plugin-sharing.js"></script>
+<script src="libs/gitbook-2.6.7/js/plugin-fontsettings.js"></script>
+<script src="libs/gitbook-2.6.7/js/plugin-bookdown.js"></script>
+<script src="libs/gitbook-2.6.7/js/jquery.highlight.js"></script>
+<script src="libs/gitbook-2.6.7/js/plugin-clipboard.js"></script>
+<script>
+gitbook.require(["gitbook"], function(gitbook) {
+gitbook.start({
+"sharing": {
+"github": false,
+"facebook": true,
+"twitter": true,
+"linkedin": false,
+"weibo": false,
+"instapaper": false,
+"vk": false,
+"all": ["facebook", "twitter", "linkedin", "weibo", "instapaper"]
+},
+"fontsettings": {
+"theme": "white",
+"family": "sans",
+"size": 2
+},
+"edit": {
+"link": null,
+"text": null
+},
+"history": {
+"link": null,
+"text": null
+},
+"view": {
+"link": null,
+"text": null
+},
+"download": null,
+"toc": {
+"collapse": "subsection"
+}
+});
+});
+</script>
+
+</body>
+
+</html>

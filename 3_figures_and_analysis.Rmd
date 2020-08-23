@@ -31,20 +31,15 @@ knitr::opts_chunk$set(eval = F)
 ```{r setup,include=F}
 library(stringr)
 library(raster)
-library(tidyverse)
 library(rgdal)
 library(rgeos)
 library(shapefiles)
 library(maptools)
-library(leaflet)
-library(velox)
 library(foreach)
 library(snow)
 library(parallel)
 library(doParallel)
 library(tidyverse)
-library(reshape2)
-library(plotly)
 library(scales)
 library(broom)
 library(RcppRoll)
@@ -58,6 +53,7 @@ library(sf)
 library(ggthemes)
 library(grid)
 library(USAboundaries)
+library(glue)
 
 #Set ggplot2 theme
 matt_theme <- theme_set(theme_bw())
@@ -157,6 +153,45 @@ dat.check <- long.df %>%
 ```
 
 
+## Figure 1 - Mining demonstration
+
+The images from this figure come from an aerial flight done by Duke University.
+The DEM generation is below. 
+
+```{r, eval = F}
+old.e <- raster('data/in/olddem_Clip1.tif')
+
+new.e <- raster('data/in/lidshedDEMcl1.tif')
+
+summary(new.e)
+#Read in Elev Rasters
+new.e <- raster('lidshedDEMcl1.tif')
+old.e <- raster('olddem_Clip1.tif')
+
+#Set min surface value
+new.e[is.na(new.e)] <- minValue(new.e)
+old.e[is.na(old.e)] <- minValue(old.e)
+
+#Setup old elevation profile matrix
+old.m <- as.matrix(old.e)
+old.x <- 10*1:nrow(old.m)
+old.y <- 10*1:ncol(old.m)
+old.z <- 2*as.matrix(old.m)
+
+#Setup new elevation profile as matrix
+new.m <- as.matrix(new.e)
+new.x <- 10*1:nrow(new.m)
+new.y <- 10*1:ncol(new.m)
+new.z <- 2*as.matrix(new.m)
+
+persp(old.x,old.y,old.z,scale=F,box=F,theta=-10,phi=30)
+
+
+
+```
+
+
+
 ## Figure 3 Study Map
 
 ```{r}
@@ -234,7 +269,7 @@ wv.dem <- ggplot() +
               filter(Type=='Reference'),aes(x=COORDS_X,y=COORDS_Y,label=Site),nudge_x=3500, nudge_y=3000,size=3.5)
 
 
-png(filename='Figures2018/fig3_studymap.png',width=5.9,height=6.3,units='in',res=300)
+png(filename='Figures2018/fig3_studymap.png',width=5.9,height=6.3, units = 'in', res = 300)
 vp <- viewport(width=0.35,height=0.4,x=0.73,y=0.25)
 print(wv.dem)
 print(wv.inset,vp=vp)
@@ -578,11 +613,10 @@ uaa.dif <- uaa.seam %>%
 ```{r}
 #Using the derivitave data we can automate most of the slope breaks
 
-#Breaks come at 0 value, min value and 
-#Use closest from DescTools to get closes value to zero
-library(DescTools)
+
 library(strucchange) #Winner winner chicken dinner!
-#Frist breaks are befrore 10^4 by visual inspection. First minimum is generally the biggest minimum but not for all sites particularly post-mining
+#Frist breaks are befrore 10^4 by visual inspection and lit values.
+#First minimum is generally the biggest minimum but not for all sites particularly post-mining
 
 
 hillslope.breaks <- uaa.dif %>%
@@ -738,32 +772,7 @@ write_csv(zone.regressions,path='Figures2018/sa.zone.regressions.csv')
 # 
 # 
 #Load in field channel heads
-load('data/in/ChannelHeads.RData')
-#Read in constructed channel heads
-bc <- read_csv('data/in/Const_Channels.csv')
-
-
-bc1 <- bc %>%
-  filter(Name != 'NC') %>%
-  mutate(UAA = lidarfac*100,
-         Slope = lidarslope/100,
-         Site = 'Mud',
-         Type = 'Mined',
-         Channel = 'Constructed') %>%
-  select(UAA, Slope, Site, Type, Channel)
-
-
-channel_heads <- fld %>%
-  select(-ID) %>%
-    mutate(UAA = SnapFAC*100,
-         Slope = FSlope/100,
-         Site = 'Mud',
-         Type = 'Unmined',
-         Channel = 'Natural') %>%
-  select(names(bc1)) %>%
-  bind_rows(bc1)
-
-channel_heads
+channel_heads <- read_csv('data/in/channel_heads.csv')
 
 
 sa.breaks$Site <- gsub('Ref','',sa.breaks$Site)
@@ -987,6 +996,8 @@ dev.off()
 
 # 3D plots
 
+## Terrain metric drape
+
 ```{r}
 
 sites <- names(all.list)
@@ -1044,7 +1055,7 @@ super_plotter <- function(spruce = all.list[[10]],
     
     
     
-    par(mar=c(0,0,0,0),mgp=c(1.8,0.5,0),cex=1.5,cex.lab=1.5,cex.axis=1.3)
+    par(mar=c(0,0,2,0),mgp=c(1.8,0.5,0),cex=1.5,cex.lab=1.5,cex.axis=1.3)
     
     mx <- matrix(c(1,1,2,2,3,4,4,5,5,6,7,7,8,8,9,10,10,11,11,12),4,5,byrow=T)
     layout(mx)
@@ -1063,12 +1074,12 @@ super_plotter <- function(spruce = all.list[[10]],
     zlims <- lim(olddem,newdem)
     
     
-    
     ## Old DEM, Top Left
     persp3D(x=x, y=y,z=old.m,col=c('gray30'),lighting=T,colkey=list(plot=FALSE),theta=theta,phi=phi,
             scale = FALSE, shade = 1,clab='Elev. (m)',axes=F,zlim=zlims,box=F,
             ticktype='detailed',xlab='North (m)',ylab='East (m)',zlab='Elev (m)',inttype=2,expand=2)
     
+  
     persp3D(x=x, y=y,z=old.m.na,col=c(bord,cols(200)),
             colkey=list(side=4,line.clab=1,dist=l.dist,width=0.75,length=0.5,mgp=c(2,0.6,0)),
             lighting=T,add=T,clim=zlims,zlim=zlims,box=F,
@@ -1085,14 +1096,22 @@ super_plotter <- function(spruce = all.list[[10]],
             scale = FALSE, shade = 0.6,clab='Elev. (m)',expand=2,
             inttype=2)
     
+    area = round(length(new.m.na)/(10000),0)
+    
+    label = bquote(.(sites[i]) ~ '-' ~ .({area}) ~ km^2)
+    
+    mtext(label, side = 3, line = -1.5,
+          cex = 2)
     
     #Elevation histogram, top right
     hist.mar <- c(3,0,0.5,2)
     par(mar=hist.mar)
-    hist(old.m.na,breaks=seq(zlims[1],zlims[2],length.out=50),xlim=zlims,col='blue',ylim=c(0,4500),xlab='Elevation (m)',ylab='Frequency',main='')
+    hist(old.m.na,breaks=seq(zlims[1],zlims[2],length.out=50),xlim=zlims,col='blue',ylim=c(0,7000),xlab='Elevation (m)',ylab='Frequency',main='')
     reds2 <- makeTransparent('red',alpha=.8)
     hist(new.m.na, breaks=seq(zlims[1],zlims[2],length.out=50),xlim=zlims,col=reds2,add=T,density=40)
-    
+    text(x = zlims[1]*1.1, y = 6000,
+         labels = c('A'),
+         cex = 3)
     
     
     
@@ -1120,9 +1139,21 @@ super_plotter <- function(spruce = all.list[[10]],
     
     
     par(mar=hist.mar)
-    hist(old.s,breaks=seq(0,4,length.out=100),xlim=c(0,1.2),col='blue',ylim=c(0,5000),xlab='Slope (m/m)',ylab='Frequency',main='')
-    hist(new.s, breaks=seq(0,4,length.out=100),xlim=c(0,1.2),col=reds2,add=T,density=40)
     
+    if(sites[i] %in% c('WhiteOak', 'Laurel','Ben')){
+    hist(old.s,breaks=seq(0,4,length.out=150),xlim=c(0,1.2),col='blue',ylim=c(0,10000),xlab='Slope (m/m)',ylab='Frequency',main='')
+    hist(new.s, breaks=seq(0,4,length.out=150),xlim=c(0,1.2),col=reds2,add=T,density=40)
+        text(x = 0.1, y = 9000,
+         labels = c('B'),
+         cex = 4)
+    }else{
+         hist(old.s,breaks=seq(0,4,length.out=100),xlim=c(0,1.2),col='blue',ylim=c(0,8000),xlab='Slope (m/m)',ylab='Frequency',main='')
+    hist(new.s, breaks=seq(0,4,length.out=100),xlim=c(0,1.2),col=reds2,add=T,density=40)
+        text(x = 0.1, y = 7000,
+         labels = c('B'),
+         cex = 3)
+    }
+
     
 
     #OldFAC
@@ -1152,11 +1183,15 @@ super_plotter <- function(spruce = all.list[[10]],
     old.f <- 10^old.f.m
     
     par(mar=hist.mar)
-    hist(old.f.m,breaks=seq(1,6.05,length.out=100),col='blue',ylim=c(0,6200),
+    hist(old.f.m,breaks=seq(1,6.05,length.out=100),col='blue',ylim=c(0,8000),
       xlab=expression(paste('UAA (',m^2,')',sep='')),ylab='Frequency',main='',xaxt='n')
     axis(1,at=c(1,2,3,4,5,6),labels=c(expression(10^1),expression(10^2),expression(10^3),expression(10^4),expression(10^5),expression(10^6)))
     hist(new.f.m, breaks=seq(1,6.05,length.out=100),xlim=c(1,6),col=reds2,add=T,density=40)
-    legend(x=10^3,y=3000,pch=c(15,15),col=c('blue',reds2),legend=c('Pre-Mining','Post-Mining'),cex=1.5)
+    legend(x=3,y=4000,pch=c(15,15),col=c('blue',reds2),legend=c('Pre-Mining','Post-Mining'),cex=1.5)
+    text(x = 2, y = 7000,
+         labels = c('C'),
+         cex = 3)
+    
     
     #OldEI
     par(mar=c(0,0,0,0))
@@ -1186,19 +1221,23 @@ super_plotter <- function(spruce = all.list[[10]],
     
     
     par(mar=hist.mar)
-    hist(old.ei,breaks=seq(-2.1,6,length.out=100),col='blue',ylim=c(0,6100),
+    hist(old.ei,breaks=seq(-2.1,6,length.out=100),col='blue',ylim=c(0,8000),
       xlab='Energy Index',ylab='Frequency',main='',xaxt='n')
     axis(1,at=c(-1,1,3,5,7),labels=c(expression(10^-1),expression(10^1),expression(10^3),expression(10^5),expression(10^7)))
     hist(new.ei, breaks=seq(-2.1,6,length.out=100),xlim=c(0,7.1),col=reds2,add=T,density=40)
-    
+    text(x = 0.01, y = 7000,
+         labels = c('D'),
+         cex = 3)
   
   dev.off()
   
 }
 
+
+
 for(i in 1:length(sites)){
   print(sites[i])
-  filename = paste0('Figures2018/',sites[i],'_3D_4_indices.png')
+  filename = paste0('Figures2018/3d_indices/',sites[i],'_3D_4_indices.png')
   
   if(!file.exists(filename)){
   super_plotter(all.list[[i]],
@@ -1213,8 +1252,8 @@ for(i in 1:length(sites)){
 ```{r}
 
 #Drape function
-
-drape <- function(site = 'WhiteRef',
+names(all.list)
+drape <- function(site = 'Spruce',
                   filename = filename){
   
   stack <- all.list[[site]]
@@ -1224,32 +1263,31 @@ drape <- function(site = 'WhiteRef',
   newdem <- stack[[1]]
   olddem <- stack[[4]]
   
-
-  
   if(grepl('Ref',site)){
     type = 'Unmined'
-    site = gsub('Ref','',site)
 
   }else {
   type = 'Mined'
   }
   
-  if(site == 'WhiteRef'){
-    site = 'WhiteOak'
-  }
   
+  if(site == 'WhiteRef' & type == 'Unmined'){
+    site1 = 'WhiteOakRef'
+  }else{site1 = site}
+  
+  unique(sa.breaks$Site)
   sa.new <- sa.breaks %>% 
-    filter(Site == site,
+    dplyr::filter(Site == site1,
            Type == type,
            Data.Source == 'Current')
   
 
   sa.old <- sa.breaks %>% 
-      filter(Site == site,
+      dplyr::filter(Site == site1,
            Type==type,
            Data.Source == 'Historic')
 
-  
+ 
   newzones <- cut(newfac,breaks=c(0,sa.new$value/10,maxValue(newfac))) %>%
     as.matrix(.) %>% as.integer()
   
@@ -1283,6 +1321,7 @@ drape <- function(site = 'WhiteRef',
     mx1 <- matrix(c(1,1,1,2,2,2,3,3),1,8,byrow=T)
     layout(mx1)
     
+    
     ## Old Zones, Top Left
     persp3D(x=x, y=y,z=old.m,col=c('gray30'),lighting=T,colkey=list(plot=FALSE),theta=theta,phi=phi,
             scale = FALSE, shade = 1,clab='Elev. (m)',axes=F,zlim=zlims,box=F,
@@ -1291,7 +1330,7 @@ drape <- function(site = 'WhiteRef',
     persp3D(x=x, y=y,z=old.m.na,col=zone.cols,
             colkey=list(side=4,line.clab=1,dist=l.dist,width=0.75,length=0.5,mgp=c(2,0.6,0),at=1:4),
             lighting=F,add=T,zlim=zlims,box=F,
-            scale = FALSE, shade = 0.6,clab='Zone',expand=2,
+            scale = FALSE, shade = 0.6,clab='Domain',expand=2,
             inttype=2,colvar=oldzones)
     
     #New zones
@@ -1302,30 +1341,45 @@ drape <- function(site = 'WhiteRef',
     persp3D(x=x, y=y,z=new.m.na,col=zone.cols,
             colkey=list(plot=F),
             lighting=F,add=T,zlim=zlims,box=F,
-            scale = FALSE, shade = 0.6,clab='Zone',expand=2,
+            scale = FALSE, shade = 0.6,clab='Domain',expand=2,
             inttype=2,colvar=newzones)
     
+    area = round(length(new.m.na)/(10000),0)
+    
+    label = bquote(.(sites[i]) ~ '-' ~ .({area}) ~ km^2)
+    
+    if(site != 'Spruce'){
+    mtext(label, side = 3, line = -3,
+          cex = 1)
+    }
     
     ## Count histogram
     
+    hmax = ceiling(max(c(table(newzones),table(oldzones)))/10000)*10000
+    hseq = seq(0,hmax,length.out = 3)
+
+    
     par(mar=c(3,4,3,1))
     hist(oldzones,col='blue',
-      xlab='Process Zones',
+      xlab='Domain',
       ylab=expression(paste('Area (',km^2,')')),
-      main='',xaxt='n',yaxt='n')
-    axis(1,at=c(0,5,10),padj=.5)
-    axis(2,at=c(0,10000,20000,30000,40000),labels=c(0:4))
+      main='',xaxt='n',yaxt='n',
+      ylim = c(0,hmax))
+    axis(1,at=c(1,2,3,4),padj=0,line=-.8)
+    axis(2, at = hseq,labels =  round(hseq/10000,1))
     hist(newzones,col=reds2,
-      xlab='Process Zones',ylab='Frequency',main='',xaxt='n',density=40,add=T)
+      xlab='Domain',ylab='Frequency',main='',xaxt='n',density=40,add=T)
     
     legend(x=2.2,y=30000,pch=c(15,15),col=c('gray20',reds2),legend=c('Pre-Mining','Post-Mining'))
   dev.off()
 }
 
 
+
+
 for(i in 1:length(sites)){
   print(sites[i])
-  filename = paste0('Figures2018/',sites[i],'Zone_Drape.png')
+  filename = paste0('Figures2018/3d_drape/',sites[i],'Zone_Drape.png')
   
   if(!file.exists(filename)){
   drape(site = sites[i],
@@ -1349,7 +1403,7 @@ sa.break.wide <- sa.breaks %>%
 sa.cutter <- function(x,y){
   df <- x %>%
     mutate(zones=cut(x$area.m2,breaks=c(0,y$value,max(x$area.m2)),
-                               labels=c('1','2','3','4')))
+                               labels=c('I','II','III','IV')))
   return(df)
 }
 
@@ -1402,11 +1456,30 @@ sa.zones_stats <- long.df %>%
   group_by(Watershed, Type,Data.Source,zones) %>%
   summarize(area.km2 = n()/10000,
             mean_elev = mean(Elev),
-            mean_slope = mean(Slope)) %>%
+            median_slope = median(Slope),
+            count = n()) %>%
   ungroup()
   
+
 sa.zones_stats
-write_csv(sa.zones_stats,'Figures2018/zonal_stats_collapse.csv')
+write_csv(sa.zones_stats,'Figures2018/zonal_stats.csv')
+
+
+wide_slope <- sa.zones_stats %>%
+  select(Watershed, Type, Data.Source, zones, median_slope) %>%
+  mutate(median_slope = round(median_slope,2)) %>%
+  pivot_wider(names_from = Data.Source,
+              values_from = median_slope) %>%
+  mutate(percent_change = round(100*((Current - Historic)/Historic),0)) %>%
+  mutate(slope = paste0(Historic,'-',Current,' (',percent_change,'%)')) %>%
+  select(Watershed, zones, Type, slope)  %>%
+  mutate(zones = as.character(zones)) %>%
+  pivot_longer(cols = slope) %>%
+  pivot_wider(names_from = zones) %>%
+  select(-name)
+  
+
+write_csv(wide_slope, 'Figures2018/zone_slope_stats.csv')
 ```
 
 

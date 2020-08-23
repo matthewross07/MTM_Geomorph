@@ -1,0 +1,28 @@
+---
+title: "SI Figure 3 - Terrain Analysis" 
+author: "Matthew Ross"
+date: "8/21/2020"
+output: pdf_document
+classoption: landscape
+---
+
+DEM and distributions of select terrain metrics that include elevation, slope,
+accumulated area, and slope-area product as a proxy for stream power for the historic and
+contemporary time periods at all nine study sites not shown in paper. Same figure as Figure
+7 in main text. 
+
+Figures below include abbreviated site names and (watershed area in $km^2$)
+
+```{r, eval = T, echo = F, out.width = "800px", cache = F}
+
+
+
+files = list.files('Figures2018/3d_indices',full.names=T) 
+
+#remove spruce (in paper already)
+files = files[-6]
+
+knitr::include_graphics(files)
+
+
+```
